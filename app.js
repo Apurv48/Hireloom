@@ -1,5 +1,6 @@
 const STORAGE_KEY = 'hireloom-mvp-v1';
 const AUTH_KEY = 'hireloom-local-accounts-v1';
+const VOICE_LANGUAGE_KEY = 'hireloom-voice-language-v1';
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = (value = '') => String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -61,6 +62,12 @@ let liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};
 const liveSearchByChat=new Map();
 const liveSearchRequestByChat=new Map();
 let liveSearchSequence=0;
+const voiceLanguageOptions=[
+  ['en-IN','English (India)'],['en-GB','English (UK)'],['en-US','English (US)'],
+  ['de-DE','German (Germany)'],['hi-IN','Hindi (India)'],['en-IN-mixed','English + Hindi (best effort)']
+];
+let voiceLanguage=(()=>{try{return voiceLanguageOptions.some(([value])=>value===localStorage.getItem(VOICE_LANGUAGE_KEY))?localStorage.getItem(VOICE_LANGUAGE_KEY):'en-IN';}catch{return 'en-IN';}})();
+let voiceState={status:'idle',recognition:null,transcript:'',interim:'',message:'',queryDraft:'',lowConfidence:false};
 
 function saveAuth() { localStorage.setItem(AUTH_KEY,JSON.stringify(authData)); }
 function normalizeEmail(value) { return String(value||'').trim().toLowerCase(); }
@@ -202,6 +209,15 @@ function renderJobCard(job) {
   </article>`;
 }
 
+function renderVoicePanel() {
+  if(voiceState.status==='idle')return '';
+  const listening=voiceState.status==='listening';
+  const transcript=[voiceState.transcript,voiceState.interim].filter(Boolean).join(' ').trim();
+  const copy=listening?'Listening now. Speak naturally, then stop when you’re done.':voiceState.message;
+  const content=listening?(transcript||'Listening for speech…'):voiceState.status==='review'?(voiceState.transcript||voiceState.queryDraft):'Type your search or try voice input again.';
+  return `<div class="voice-panel ${listening?'listening':voiceState.status==='error'?'error':'review'}" id="voice-panel" role="status" aria-live="polite"><div class="voice-panel-heading"><span class="voice-indicator ${listening?'active':''}"></span><strong>${listening?'Listening':voiceState.status==='review'?'Review your transcript':'Voice search'}</strong></div><p class="voice-panel-copy" id="voice-message">${esc(copy)}</p><p class="voice-transcript" id="voice-transcript">${esc(content)}</p><div class="voice-panel-actions">${listening?'<button class="secondary-button" type="button" data-action="voice-stop">Stop listening</button>':voiceState.status==='error'?'<button class="secondary-button" type="button" data-action="voice-retry">Try again</button>':''}<button class="text-button" type="button" data-action="voice-cancel">${listening?'Cancel':'Dismiss'}</button></div></div>`;
+}
+
 function renderChat() {
   const chat = getChat();
   const hasSearch = !!chat?.hasSearch;
@@ -227,9 +243,10 @@ function renderChat() {
         ${results.length ? `<div class="result-list">${results.map(renderJobCard).join('')}</div>` : `<div class="empty-state"><div class="empty-icon">⌕</div><h3>${feedFailed?'Live job feeds are unavailable':liveReady?'No live listings matched this search':'No roles matched those filters'}</h3><p>${feedFailed?'Live feeds could not be reached and no sample roles match this search. Check your internet connection and retry.':'Try a broader title, remove a location, or switch the work mode.'}</p>${liveReady?'<span class="assistant-caption">Job listings can change. Confirm details on the original source before applying.</span>':'<button class="secondary-button" data-action="clear-search">Clear filters</button>'}</div>`}`}
       ` : `<div class="assistant-intro"><div class="empty-icon">✳</div><h2>What job should we look for?</h2><p>Type a search in your own words, or start with one of these.</p><div class="suggestion-list"><button class="suggestion-chip" data-query="Remote Python jobs in Germany, English, 2+ years experience">Remote Python jobs in Germany</button><button class="suggestion-chip" data-query="Data analyst, hybrid, Berlin">Data analyst, hybrid, Berlin</button><button class="suggestion-chip" data-query="Junior ML roles, English speaking">Junior ML roles, English speaking</button></div><span class="assistant-caption">Your confirmed profile helps make the matches more useful.</span></div>`}
     </div>
-    <div class="composer-wrap"><div class="filters-row">${(filters.length?filters:['Work mode','Location','Language']).map((filter) => `<button class="filter-pill" data-action="filter-chip" data-filter="${esc(filter)}">${esc(filter)}${filter==='Work mode'||filter==='Location'||filter==='Language'?' ▾':''}</button>`).join('')}<button class="filter-pill" data-action="more-filters">＋ More filters</button></div>
-      <form class="composer" id="search-form"><input name="query" aria-label="Describe the job you want" placeholder="Try “remote data roles in Germany”" autocomplete="off" /><button class="secondary-button" type="button" data-action="voice-search">◉ <span>Voice</span></button><button class="primary-button" type="submit">Search <span>↗</span></button></form>
-      <p class="assistant-caption">Search terms and profile filters stay in this app. Only public listings are fetched; your CV and profile are never sent to job sites.</p>
+    <div class="composer-wrap"><div class="filters-row">${(filters.length?filters:['Work mode','Location','Language']).map((filter) => `<button class="filter-pill" data-action="filter-chip" data-filter="${esc(filter)}">${esc(filter)}${filter==='Work mode'||filter==='Location'||filter==='Language'?' ▾':''}</button>`).join('')}<button class="filter-pill" data-action="more-filters">＋ More filters</button><label class="voice-language-control"><span>Voice</span><select id="voice-language" aria-label="Voice search language">${voiceLanguageOptions.map(([value,label])=>`<option value="${value}" ${voiceLanguage===value?'selected':''}>${esc(label)}</option>`).join('')}</select></label></div>
+      ${renderVoicePanel()}
+      <form class="composer" id="search-form"><input id="search-query" name="query" value="${esc(voiceState.status==='review'?voiceState.queryDraft:voiceState.baseQuery||'')}" aria-label="Describe the job you want" placeholder="Try “remote data roles in Germany”" autocomplete="off" /><button class="secondary-button voice-button ${voiceState.status==='listening'?'is-listening':''}" type="button" data-action="voice-search" aria-label="${voiceState.status==='listening'?'Listening; tap to stop':'Start voice search'}" aria-pressed="${voiceState.status==='listening'}">◉ <span>${voiceState.status==='listening'?'Listening':'Speak'}</span></button><button class="primary-button" type="submit">Search <span>↗</span></button></form>
+      <p class="assistant-caption">Search terms and profile filters stay in this app. Your CV and profile are never sent to job sites. Your browser may use its speech service to transcribe voice; Hireloom does not save audio. Review the transcript before searching.</p>
     </div>
   </section></div>`;
 }
@@ -319,11 +336,95 @@ function attachViewEvents() {
   const signupForm=$('#signup-form');
   if(signupForm) signupForm.addEventListener('submit',(event)=>{event.preventDefault();createAccount(new FormData(signupForm));});
   const searchForm=$('#search-form');
-  if(searchForm) searchForm.addEventListener('submit',(event)=>{event.preventDefault();const q=new FormData(searchForm).get('query');if(q?.trim()) runSearch(q.trim());});
+  if(searchForm) searchForm.addEventListener('submit',(event)=>{event.preventDefault();if(voiceState.status==='listening'){toast('Stop listening and review the transcript before searching.','error');return;}const raw=String(new FormData(searchForm).get('query')||'').trim();if(!raw)return;const fromVoice=voiceState.status==='review';const query=fromVoice?normalizeVoiceQuery(raw):raw;if(fromVoice&&query!==raw)toast('Common Hindi and German job-search terms were normalized for matching.','success');runSearch(query);});
+  const languageSelect=$('#voice-language');
+  if(languageSelect) languageSelect.addEventListener('change',()=>{voiceLanguage=languageSelect.value;try{localStorage.setItem(VOICE_LANGUAGE_KEY,voiceLanguage);}catch{};});
+  const searchInput=$('#search-query');
+  if(searchInput) searchInput.addEventListener('input',()=>{if(voiceState.status==='review'){voiceState.queryDraft=searchInput.value;const transcript=$('#voice-transcript');if(transcript)transcript.textContent=voiceState.transcript||searchInput.value;}});
   const profileForm=$('#profile-form');
   if(profileForm) profileForm.addEventListener('submit',(event)=>{event.preventDefault();saveProfile(new FormData(profileForm));});
   const upload=$('#cv-upload');
   if(upload) upload.addEventListener('change',()=>handleUpload(upload.files?.[0]));
+}
+
+function normalizeVoiceQuery(value) {
+  let query=String(value||'');
+  const replacements=[
+    [/softwareentwickler(?:in)?|software-entwickler(?:in)?/gi,'software developer'],
+    [/dateningenieur(?:in)?/gi,'data engineer'],[/datenanalyst(?:in)?|datenanalytiker(?:in)?/gi,'data analyst'],
+    [/entwickler(?:in)?/gi,'developer'],[/münchen/gi,'Munich'],[/deutschland/gi,'Germany'],[/englisch/gi,'English'],[/deutsch/gi,'German'],[/stellenangebote|arbeitsplätze|stellen/gi,'jobs'],[/im homeoffice|aus dem homeoffice|von zu hause/gi,'remote'],[/mindestens drei jahre/gi,'3 years'],[/zwei jahre/gi,'2 years'],[/hybrid/gi,'hybrid'],
+    [/डेटा\s*इंजीनियर/gu,'data engineer'],[/डेटा\s*(?:एनालिस्ट|विश्लेषक)/gu,'data analyst'],[/सॉफ्टवेयर\s*इंजीनियर/gu,'software engineer'],[/इंजीनियर/gu,'engineer'],[/डेवलपर/gu,'developer'],[/बर्लिन/gu,'Berlin'],[/म्यूनिख/gu,'Munich'],[/जर्मनी/gu,'Germany'],[/भारत/gu,'India'],[/रिमोट|घर\s*से/gu,'remote'],[/हाइब्रिड/gu,'hybrid'],[/अंग्रेज़ी|अंग्रेजी/gu,'English'],[/जर्मन/gu,'German'],[/नौकरी|जॉब|काम/gu,'jobs'],[/तीन\s*साल/gu,'3 years'],[/दो\s*साल/gu,'2 years'],
+    [/\bnaukri\b/gi,'jobs'],[/\bkaam\b/gi,'jobs'],[/\bberlin mein\b/gi,'Berlin'],[/\bmunich mein\b/gi,'Munich'],[/\bjarmani\b|\bgermany mein\b/gi,'Germany'],[/\bghar se\b/gi,'remote'],[/\bteen saal\b/gi,'3 years'],[/\bdo saal\b/gi,'2 years']
+  ];
+  for(const [pattern,replacement] of replacements)query=query.replace(pattern,replacement);
+  return query.replace(/\s+/g,' ').trim();
+}
+
+function startVoiceSearch() {
+  const baseQuery=$('#search-query')?.value.trim()||'';
+  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SpeechRecognition){voiceState={status:'error',recognition:null,transcript:'',interim:'',message:'Voice input is not supported in this browser. Type your search instead.',queryDraft:'',baseQuery,lowConfidence:false};render();return;}
+  cancelVoiceSearch(false);
+  const recognition=new SpeechRecognition();
+  voiceState={status:'listening',recognition,transcript:'',interim:'',message:'',queryDraft:baseQuery,baseQuery,lowConfidence:false};
+  recognition.lang=voiceLanguage==='en-IN-mixed'?'en-IN':voiceLanguage;
+  recognition.continuous=true;recognition.interimResults=true;recognition.maxAlternatives=3;
+  recognition.onresult=(event)=>{
+    if(voiceState.recognition!==recognition)return;
+    const finalParts=[],interimParts=[];let lowConfidence=false;
+    for(let i=0;i<event.results.length;i++){
+      const result=event.results[i],alternative=result[0];
+      if(!alternative)continue;
+      if(result.isFinal){finalParts.push(alternative.transcript.trim());if(alternative.confidence>0&&alternative.confidence<0.55)lowConfidence=true;}
+      else interimParts.push(alternative.transcript.trim());
+    }
+    voiceState.transcript=finalParts.join(' ').trim();voiceState.interim=interimParts.join(' ').trim();voiceState.lowConfidence=lowConfidence;
+    const input=$('#search-query');
+    if(input&&voiceState.transcript)input.value=[voiceState.baseQuery,voiceState.transcript].filter(Boolean).join(' ');
+    const output=$('#voice-transcript');if(output)output.textContent=[voiceState.transcript,voiceState.interim].filter(Boolean).join(' ')||'Listening for speech…';
+  };
+  recognition.onerror=(event)=>{
+    if(voiceState.recognition!==recognition)return;
+    const messages={
+      'not-allowed':'Microphone permission is blocked. Enable it in your browser or type your search.',
+      'service-not-allowed':'Speech recognition is blocked by the browser. Type your search instead.',
+      'no-speech':'I didn’t catch any speech. Try again or type your search.',
+      'audio-capture':'No microphone was found. Connect a microphone or type your search.',
+      'network':'The browser speech service is unavailable. Check your connection or type your search.',
+      'language-not-supported':'This browser does not support the selected voice language. Choose another language or type your search.'
+    };
+    voiceState.recognition=null;voiceState.status='error';voiceState.interim='';voiceState.message=messages[event.error]||'Voice input stopped. Try again or type your search.';
+    if(state.view==='chat')render();
+  };
+  recognition.onend=()=>{
+    if(voiceState.recognition!==recognition)return;
+    voiceState.recognition=null;voiceState.interim='';
+    if(voiceState.transcript.trim()){
+      voiceState.status='review';voiceState.queryDraft=[voiceState.baseQuery,voiceState.transcript.trim()].filter(Boolean).join(' ');
+      voiceState.message=voiceState.lowConfidence?'Some words may be uncertain. Review the transcript before searching.':'Review the transcript before searching.';
+    }else{
+      voiceState.status='error';voiceState.message='I didn’t catch any speech. Try again or type your search.';
+    }
+    if(state.view==='chat')render();
+  };
+  try{recognition.start();render();}
+  catch{voiceState.recognition=null;voiceState.status='error';voiceState.message='Could not start voice input. Check microphone permission or type your search.';render();}
+}
+
+function stopVoiceSearch() {
+  if(!voiceState.recognition)return;
+  voiceState.message='Finishing the transcript…';
+  const message=$('#voice-message');if(message)message.textContent=voiceState.message;
+  try{voiceState.recognition.stop();}catch{voiceState.status='error';voiceState.message='Could not stop voice input. Type your search instead.';render();}
+}
+
+function cancelVoiceSearch(shouldRender=true,preserveInput=false) {
+  const recognition=voiceState.recognition;
+  const queryToKeep=preserveInput?($('#search-query')?.value||voiceState.queryDraft||voiceState.baseQuery||''):'';
+  voiceState.recognition=null;
+  if(recognition){try{recognition.abort();}catch{}}
+  voiceState={status:'idle',recognition:null,transcript:'',interim:'',message:'',queryDraft:'',baseQuery:queryToKeep,lowConfidence:false};
+  if(shouldRender&&state.view==='chat')render();
 }
 
 function finishLogin(account) {
@@ -357,6 +458,7 @@ async function createAccount(formData) {
 }
 
 function runSearch(query, existingChat=false) {
+  cancelVoiceSearch(false);
   let chat=getChat();
   if(!chat || !existingChat && chat.hasSearch) {
     chat={id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false};
@@ -483,7 +585,7 @@ function showCvDraftReview() {
   openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">CV parsed locally</span><h2>Review your profile draft</h2><p class="modal-copy">Select the details you want to add to your profile. Nothing is used for matching until you confirm it.</p><form id="cv-draft-form"><div class="modal-section"><h4>${esc(pending.fileName)} · ${d.pageCount?`${d.pageCount} pages · `:''}extracted details</h4>${suggestions.length?suggestions.map(([key,label,value])=>`<label class="draft-row"><input type="checkbox" name="fields" value="${key}" ${key==='warning'?'disabled':''} ${key==='warning'?'':'checked'} /><span><strong>${esc(label)}</strong><small>${esc(value)}</small></span></label>`).join(''):'<p>No profile fields were extracted. You can still keep the CV filename in your local profile.</p>'}</div><div class="modal-actions"><button type="button" class="secondary-button" data-action="discard-cv-draft">Discard draft</button><button class="primary-button">Confirm selected details</button></div></form>`);
   $('#cv-draft-form').addEventListener('submit',(event)=>{event.preventDefault();const selected=new FormData(event.currentTarget).getAll('fields');const draft=state.pendingCvDraft.draft;const p=state.profile;if(selected.includes('email')&&draft.email)p.email=draft.email;if(selected.includes('phone')&&draft.phone)p.phone=draft.phone;if(selected.includes('skills')&&draft.skills)p.skills=[...new Set([...p.skills,...draft.skills])];if(selected.includes('summary')&&draft.summary)p.summary=draft.summary.slice(0,220);p.cvName=state.pendingCvDraft.fileName;p.cvStatus=`Parsed locally · ${draft.pageCount?`${draft.pageCount} pages · `:''}profile confirmed`;state.pendingCvDraft=null;persist();closeModal();render();toast('Selected CV details added to your profile.','success');});
 }
-function setView(view) { state.view=view;state.sidebarOpen=false;persist();render();window.scrollTo({top:0,behavior:'smooth'}); }
+function setView(view) { cancelVoiceSearch(false);state.view=view;state.sidebarOpen=false;persist();render();window.scrollTo({top:0,behavior:'smooth'}); }
 function downloadData() {
   const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),profile:state.profile,chats:state.chats,applications:state.applications,savedJobs:state.savedJobs,settings:state.settings},null,2)],{type:'application/json'});
   const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='hireloom-demo-data.json';link.click();URL.revokeObjectURL(link.href);toast('Your local data export is ready.','success');
@@ -498,9 +600,9 @@ function downloadApprovedCv(jobId) {
 }
 
 document.addEventListener('click',(event)=>{
-  const nav=event.target.closest('[data-nav]');if(nav){state.view=nav.dataset.nav==='tracker'?'tracker':'chat';state.sidebarOpen=false;persist();if(state.view==='chat'&&getChat()?.hasSearch)startLiveSearch(getChat());else render();return;}
-  const chatButton=event.target.closest('[data-chat-id]');if(chatButton){state.activeChatId=chatButton.dataset.chatId;state.view='chat';state.sidebarOpen=false;persist();if(getChat()?.hasSearch)startLiveSearch(getChat());else render();return;}
-  const jobButton=event.target.closest('[data-job]');if(jobButton){state.selectedJobId=jobButton.dataset.job;state.view='job';state.sidebarOpen=false;persist();render();return;}
+  const nav=event.target.closest('[data-nav]');if(nav){cancelVoiceSearch(false);state.view=nav.dataset.nav==='tracker'?'tracker':'chat';state.sidebarOpen=false;persist();if(state.view==='chat'&&getChat()?.hasSearch)startLiveSearch(getChat());else render();return;}
+  const chatButton=event.target.closest('[data-chat-id]');if(chatButton){cancelVoiceSearch(false);state.activeChatId=chatButton.dataset.chatId;state.view='chat';state.sidebarOpen=false;persist();if(getChat()?.hasSearch)startLiveSearch(getChat());else render();return;}
+  const jobButton=event.target.closest('[data-job]');if(jobButton){cancelVoiceSearch(false);state.selectedJobId=jobButton.dataset.job;state.view='job';state.sidebarOpen=false;persist();render();return;}
   const tab=event.target.closest('[data-profile-tab]');if(tab){state.profileTab=tab.dataset.profileTab;render();return;}
   const settingTab=event.target.closest('[data-settings-tab]');if(settingTab){state.settingsTab=settingTab.dataset.settingsTab;render();return;}
   const trackerFilter=event.target.closest('[data-tracker-filter]');if(trackerFilter){state.trackerFilter=trackerFilter.dataset.trackerFilter;render();return;}
@@ -511,7 +613,7 @@ document.addEventListener('click',(event)=>{
     case 'show-signup':authDraft={name:'',email:$('#login-email')?.value||authData.lastEmail};authMode='signup';authMessage='';render();break;
     case 'show-login':authData.lastEmail=$('#signup-email')?.value||authData.lastEmail;saveAuth();authMode='login';authMessage='';render();break;
     case 'toggle-password':{const input=document.getElementById(id);if(input){input.type=input.type==='password'?'text':'password';action.textContent=input.type==='password'?'Show':'Hide';}break;}
-    case 'new-chat':{const chat={id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false};state.chats.unshift(chat);state.activeChatId=chat.id;state.view='chat';persist();render();break;}
+    case 'new-chat':{cancelVoiceSearch(false);const chat={id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false};state.chats.unshift(chat);state.activeChatId=chat.id;state.view='chat';persist();render();break;}
     case 'toggle-sidebar':state.sidebarOpen=!state.sidebarOpen;updateShell();break;
     case 'toggle-menu':$('#account-menu').classList.toggle('hidden');break;
     case 'open-profile':state.profileTab='about';setView('profile');break;
@@ -521,7 +623,10 @@ document.addEventListener('click',(event)=>{
     case 'clear-search':runSearch('Data jobs');break;
     case 'copy-search':navigator.clipboard?.writeText(latestQuery()).then(()=>toast('Search copied.','success')).catch(()=>toast('Copy the search text from the message.'));break;
     case 'rerun-search':startLiveSearch(getChat(),true);toast('Live listings refreshed.','success');break;
-    case 'voice-search':toast('Voice search is planned for a later phase. Type your search instead.');break;
+    case 'voice-search':if(voiceState.status==='listening')stopVoiceSearch();else startVoiceSearch();break;
+    case 'voice-stop':stopVoiceSearch();break;
+    case 'voice-cancel':cancelVoiceSearch(true,true);break;
+    case 'voice-retry':startVoiceSearch();break;
     case 'more-filters':showMoreFilters();break;
     case 'filter-chip':if(['Remote','Hybrid','Onsite'].includes(action.dataset.filter))runSearch(`${latestQuery()} ${action.dataset.filter}`,true);else if(['Germany','Berlin','Munich'].includes(action.dataset.filter))runSearch(`${latestQuery()} ${action.dataset.filter}`,true);else showMoreFilters();break;
     case 'save-job':{const saved=state.savedJobs.includes(id);state.savedJobs=saved?state.savedJobs.filter((jobId)=>jobId!==id):[...state.savedJobs,id];persist();render();toast(saved?'Removed from saved jobs.':'Job saved.','success');break;}
@@ -546,11 +651,11 @@ document.addEventListener('click',(event)=>{
     case 'toggle-setting':state.settings[action.dataset.setting]=!state.settings[action.dataset.setting];persist();render();break;
     case 'export-data':downloadData();break;
     case 'delete-data':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Privacy</span><h2>Delete local demo data?</h2><p class="modal-copy">This removes your saved profile, conversations, CV filename and tracker entries from this browser. This action cannot be undone.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="danger-button" data-action="confirm-delete">Delete data</button></div>`);break;
-    case 'confirm-delete':localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(AUTH_KEY);state=initialState();authData={accounts:[],lastEmail:''};liveSearchByChat.clear();liveSearchRequestByChat.clear();liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};authMode='login';authMessage='';session=false;closeModal();render();toast('Local demo data deleted.','success');break;
+    case 'confirm-delete':cancelVoiceSearch(false);localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(AUTH_KEY);state=initialState();authData={accounts:[],lastEmail:''};liveSearchByChat.clear();liveSearchRequestByChat.clear();liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};authMode='login';authMessage='';session=false;closeModal();render();toast('Local demo data deleted.','success');break;
     case 'reset-demo':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Reset demo</span><h2>Restore the sample workspace?</h2><p class="modal-copy">This resets your local profile, searches and applications to the sample data.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="confirm-reset">Restore demo</button></div>`);break;
-    case 'confirm-reset':state=initialState();liveSearchByChat.clear();liveSearchRequestByChat.clear();liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();toast('Sample workspace restored.','success');break;
+    case 'confirm-reset':cancelVoiceSearch(false);state=initialState();liveSearchByChat.clear();liveSearchRequestByChat.clear();liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();toast('Sample workspace restored.','success');break;
     case 'logout':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Account</span><h2>Log out of Hireloom?</h2><p class="modal-copy">This ends the current demo session. Your local profile and tracker data will remain saved in this browser.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="confirm-logout">Log out</button></div>`);break;
-    case 'confirm-logout':session=false;state.loggedOut=true;state.view='login';liveSearchByChat.clear();liveSearchRequestByChat.clear();liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();break;
+    case 'confirm-logout':cancelVoiceSearch(false);session=false;state.loggedOut=true;state.view='login';liveSearchByChat.clear();liveSearchRequestByChat.clear();liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();break;
     case 'continue-demo':state.loggedOut=false;state.view='chat';persist();if(getChat()?.hasSearch)startLiveSearch(getChat());else render();toast('Returned to your saved demo workspace.','success');break;
     case 'plan-select':toast(`${action.dataset.plan} is a prototype plan. No payment is collected.`);break;
     case 'close-modal':closeModal();break;
