@@ -118,6 +118,16 @@ h3 { margin-bottom: 6px; font-size: 15px; }
 .message-row { display: flex; margin: 15px 0; }
 .message-row.user { justify-content: flex-end; }
 .message-row.assistant { justify-content: flex-start; }
+.user-prompt-content { display: flex; max-width: min(650px,86%); flex-direction: column; align-items: flex-end; gap: 5px; }
+.message-row.user .user-prompt-content .message-bubble { max-width: 100%; }
+.prompt-actions { display: flex; align-items: center; gap: 2px; }
+.prompt-icon-button { display: inline-grid; width: 28px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #73778a; cursor: pointer; font: 16px/1 "Segoe UI Symbol", "Segoe UI", sans-serif; }
+.prompt-icon-button:hover, .prompt-icon-button:focus-visible { background: #f1f0ff; color: #5550bc; outline: none; }
+.user-prompt-edit { display: flex; width: min(650px,86%); flex-direction: column; align-items: flex-end; gap: 8px; }
+.prompt-edit-input { width: 100%; min-height: 84px; resize: vertical; border: 1px solid #dcdaf8; border-radius: 12px 12px 3px 12px; padding: 11px 14px; background: #f1f0ff; color: #383b70; font: inherit; font-size: 12px; line-height: 1.6; }
+.prompt-edit-input:focus { border-color: #827deb; outline: 2px solid #e4e2ff; }
+.prompt-edit-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.prompt-edit-actions button:disabled { cursor: not-allowed; opacity: .48; }
 .assistant-response { max-width: min(650px, 86%); }
 .assistant-name { display: block; margin: 0 0 5px 2px; color: #74788a; font-size: 9px; font-weight: 700; }
 .message-bubble { max-width: min(650px, 86%); border: 1px solid var(--line); border-radius: 12px 12px 3px 12px; padding: 11px 14px; background: #fff; color: #45495d; font-size: 12px; line-height: 1.6; }
