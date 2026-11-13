@@ -27,14 +27,18 @@ const defaultProfile = () => ({
   answers:{}, cvVersion:1
 });
 
+function makeSearchTurn(query,id=`turn-${Date.now()}`) {
+  return {id,query,status:'unloaded',response:'',jobs:[],sources:[],totalResults:0,resultsCaptured:false,createdAt:new Date().toISOString()};
+}
+
 function initialState() {
   const profile = defaultProfile();
   return {
     profile,
     chats:[
-      { id:'seed-remote', title:'Remote Python jobs', date:'Today', query:'Remote Python jobs, English, 2+ years experience', hasSearch:true },
-      { id:'seed-analyst', title:'Data analyst, hybrid, Berlin', date:'Yesterday', query:'Data analyst, hybrid, Berlin', hasSearch:true },
-      { id:'seed-ml', title:'Junior ML roles, English speaking', date:'Last week', query:'Junior ML roles, English speaking', hasSearch:true }
+      { id:'seed-remote', title:'Remote Python jobs', date:'Today', query:'Remote Python jobs, English, 2+ years experience', hasSearch:true, turns:[makeSearchTurn('Remote Python jobs, English, 2+ years experience','seed-remote-turn-1')] },
+      { id:'seed-analyst', title:'Data analyst, hybrid, Berlin', date:'Yesterday', query:'Data analyst, hybrid, Berlin', hasSearch:true, turns:[makeSearchTurn('Data analyst, hybrid, Berlin','seed-analyst-turn-1')] },
+      { id:'seed-ml', title:'Junior ML roles, English speaking', date:'Last week', query:'Junior ML roles, English speaking', hasSearch:true, turns:[makeSearchTurn('Junior ML roles, English speaking','seed-ml-turn-1')] }
     ],
     activeChatId:'seed-remote', view:'login', selectedJobId:null, profileTab:'about', settingsTab:'account', trackerFilter:'All',
     applications:[], savedJobs:[], cvVersions:[], settings:{newMatches:true, reminders:true, autoApply:false},
@@ -46,7 +50,12 @@ function loadState() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (!parsed || !parsed.profile || !Array.isArray(parsed.chats)) return initialState();
-    const chats=parsed.chats.map((chat)=>chat.id==='seed-remote'&&chat.query==='Remote Python jobs in Germany, English, 2+ years experience'?{...chat,title:'Remote Python jobs',query:'Remote Python jobs, English, 2+ years experience'}:chat);
+    const chats=parsed.chats.map((stored)=>{
+      const chat=stored.id==='seed-remote'&&stored.query==='Remote Python jobs in Germany, English, 2+ years experience'?{...stored,title:'Remote Python jobs',query:'Remote Python jobs, English, 2+ years experience'}:stored;
+      const turns=Array.isArray(chat.turns)&&chat.turns.length?chat.turns.map((turn,index)=>({...makeSearchTurn(turn.query||'',turn.id||`${chat.id}-turn-${index+1}`),...turn,status:turn.resultsCaptured?(turn.status==='error'?'error':'ready'):'unloaded',jobs:Array.isArray(turn.jobs)?turn.jobs:[],sources:Array.isArray(turn.sources)?turn.sources:[]})):(chat.hasSearch&&chat.query?[makeSearchTurn(chat.query,`${chat.id}-turn-1`)]:[]);
+      const latest=turns[turns.length-1];
+      return {...chat,turns,query:latest?.query||chat.query||'',hasSearch:turns.length>0};
+    });
     return { ...initialState(), ...parsed, chats, view:'login', loggedOut:true, profile:{ ...defaultProfile(), ...parsed.profile }, settings:{ ...initialState().settings, ...(parsed.settings || {}) } };
   } catch { return initialState(); }
 }
@@ -59,10 +68,10 @@ function loadAuth() {
   } catch { return {accounts:[],lastEmail:''}; }
 }
 let authData=loadAuth(), authMode='login', authMessage='', authDraft={name:'',email:''};
-let liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};
+let liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};
 let pendingDeleteChatId=null;
-const liveSearchByChat=new Map();
-const liveSearchRequestByChat=new Map();
+const liveSearchByTurn=new Map();
+const liveSearchRequestByTurn=new Map();
 let liveSearchSequence=0;
 const voiceLanguageOptions=[
   ['en-IN','English (India)'],['en-GB','English (UK)'],['en-US','English (US)'],
@@ -91,7 +100,7 @@ function persist() {
   catch { toast('Could not save this change in your browser storage.', 'error'); }
 }
 function getChat() { return state.chats.find((chat) => chat.id === state.activeChatId) || state.chats[0]; }
-function getJob(id) { return jobs.find((job) => job.id === id) || liveSearch.jobs.find((job) => job.id === id) || [...liveSearchByChat.values()].flatMap((search) => search.jobs || []).find((job) => job.id === id); }
+function getJob(id) { return jobs.find((job) => job.id === id) || liveSearch.jobs.find((job) => job.id === id) || [...liveSearchByTurn.values()].flatMap((search) => search.jobs || []).find((job) => job.id === id) || state.chats.flatMap((chat)=>chat.turns||[]).flatMap((turn)=>turn.jobs||[]).find((job)=>job.id===id); }
 function normalizeSkill(skill) {
   const aliases = { js:'JavaScript', javascript:'JavaScript', 'data pipelines':'Data pipelines', 'rest apis':'REST APIs', api:'APIs', 'machine learning':'Machine learning', ml:'Machine learning', 'product analytics':'Product analytics' };
   return aliases[String(skill).trim().toLowerCase()] || String(skill).trim();
@@ -185,10 +194,9 @@ function atsScore() {
   return Math.min(98, score);
 }
 function tokensForSearch(query) { return String(query).toLowerCase().replace(/\b\d+\+?\s*(years?|yrs?)\b/g,' ').match(/[a-z][a-z0-9+#.-]*/g) || []; }
-function jobsForQuery(query) {
+function jobsForQuery(query,catalogOverride) {
   const q = String(query || '').toLowerCase();
-  const activeSearch=liveSearchByChat.get(state.activeChatId);
-  const catalog=activeSearch?.query===String(query) && activeSearch.status==='ready' ? activeSearch.jobs : jobs;
+  const catalog=Array.isArray(catalogOverride)?catalogOverride:jobs;
   const mode = q.includes('remote') ? 'Remote' : q.includes('hybrid') ? 'Hybrid' : q.includes('onsite') || q.includes('on-site') ? 'Onsite' : null;
   const locations=effectiveLocationTerms(query);
   const language = ['german','english','french','spanish'].find((lang) => q.includes(lang));
@@ -208,6 +216,10 @@ function jobsForQuery(query) {
   });
   return ranked.filter((entry) => entry.score >= 0).sort((a,b) => b.score-a.score).map((entry) => entry.job);
 }
+function snapshotJob(job) {
+  return {...job,fitScore:matchScore(job),description:String(job.description||'').slice(0,900),highlights:(job.highlights||[]).slice(0,3).map((value)=>String(value).slice(0,220)),skills:(job.skills||[]).slice(0,12)};
+}
+function latestTurn(chat=getChat()) { return chat?.turns?.[chat.turns.length-1]||null; }
 function latestQuery() { return getChat()?.query || ''; }
 function formatDate(iso) { try { return new Date(iso).toLocaleDateString(undefined,{day:'numeric',month:'short'}); } catch { return iso; } }
 function initials(name) { return String(name || 'You').trim().split(/\s+/).slice(0,2).map((part) => part[0]).join('').toUpperCase() || 'Y'; }
@@ -254,8 +266,8 @@ function renderSignup() {
   return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Start your search</span><h1>Create your account</h1><p class="subhead">Set up a local Hireloom demo account.</p>${authMessage?`<p class="auth-message">${esc(authMessage)}</p>`:''}<form id="signup-form" class="login-form"><div class="field"><label for="signup-name">Full name</label><input id="signup-name" name="name" value="${esc(authDraft.name)}" autocomplete="name" required /></div><div class="field"><label for="signup-email">Email</label><input id="signup-email" name="email" type="email" value="${esc(authDraft.email||authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><div class="field"><label for="signup-password">Password</label><div class="password-input"><input id="signup-password" name="password" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-password">Show</button></div><small>Use at least 8 characters.</small></div><div class="field"><label for="signup-confirm">Confirm password</label><div class="password-input"><input id="signup-confirm" name="confirm" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-confirm">Show</button></div></div><label class="consent-row"><input type="checkbox" name="localConsent" required /> <span>I understand this demo saves my profile and a password hash in this browser.</span></label><button class="primary-button login-submit">Create account</button></form><p class="login-switch">Already have an account? <button class="text-button" data-action="show-login">Log in</button></p><p class="login-note">This creates a local demo account only. There is no email verification or account recovery.</p></div></section>`;
 }
 
-function renderJobCard(job) {
-  const score = matchScore(job);
+function renderJobCard(job,scoreOverride) {
+  const score = Number.isFinite(scoreOverride)?scoreOverride:Number.isFinite(job.fitScore)?job.fitScore:matchScore(job);
   const saved = state.savedJobs.includes(job.id);
   return `<article class="job-card">
     <div class="job-card-top"><div><button class="job-title-button" data-job="${job.id}">${esc(job.title)}</button><div class="company-line">${esc(job.company)} <span>·</span> ${esc(job.location)}</div></div><div class="fit-badge"><strong>${score}</strong><small>FIT</small></div></div>
@@ -272,35 +284,35 @@ function renderVoicePanel() {
   return `<div class="voice-panel ${listening?'listening':voiceState.status==='error'?'error':'review'}" id="voice-panel" role="status" aria-live="polite"><div class="voice-panel-heading"><span class="voice-indicator ${listening?'active':''}"></span><strong>${listening?'Listening':voiceState.status==='review'?'Review your transcript':'Voice search'}</strong></div><p class="voice-panel-copy" id="voice-message">${esc(copy)}</p><p class="voice-transcript" id="voice-transcript">${esc(content)}</p><div class="voice-panel-actions">${listening?'<button class="secondary-button" type="button" data-action="voice-stop">Stop listening</button>':voiceState.status==='error'?'<button class="secondary-button" type="button" data-action="voice-retry">Try again</button>':''}<button class="text-button" type="button" data-action="voice-cancel">${listening?'Cancel':'Dismiss'}</button></div></div>`;
 }
 
+function renderConversationTurn(turn,index,count) {
+  const search=liveSearchByTurn.get(turn.id),status=search?.status||turn.status;
+  const searching=status==='loading'||status==='unloaded';
+  const liveReady=status==='ready',feedFailed=status==='error';
+  const results=turn.resultsCaptured?turn.jobs:(liveReady?jobsForQuery(turn.query,search?.jobs||[]):[]);
+  const feedNames=(turn.sources?.length?turn.sources:search?.sources||[]).filter((source)=>source.ok).map((source)=>source.name);
+  const latest=index===count-1;
+  const response=turn.response||(liveReady?'Here are the closest matching roles I found.':feedFailed?'I couldn’t reach the live job feeds for this search. You can retry it.':'I’m searching current listings for this request.');
+  return `<section class="conversation-turn"><div class="message-row user"><div class="message-bubble">${esc(turn.query)}</div></div><div class="message-row assistant"><div class="assistant-response"><span class="assistant-name">Hireloom</span><div class="message-bubble assistant-bubble">${searching?'<span class="typing-indicator">Searching current listings…</span>':esc(response)}</div></div></div>
+    ${searching?`<div class="empty-state turn-loading"><div class="empty-icon">⌕</div><h3>Finding roles for this prompt…</h3><p>Checking current listings while keeping your earlier messages here.</p></div>`:`<div class="result-head"><span><strong>${Number(turn.totalResults??results.length)} ${Number(turn.totalResults??results.length)===1?'role':'roles'}</strong> ${liveReady?`from live feeds${feedNames.length?` · ${esc(feedNames.join(' + '))}`:''}, ranked by fit`:feedFailed?'live feeds unavailable':'matching roles'}</span><div>${latest?`<button class="text-button" data-action="edit-search">Refine with a new prompt</button>${feedFailed?` <button class="text-button" data-action="rerun-search">Retry</button>`:''}`:''}</div></div>
+    ${results.length?`<div class="result-list">${results.map((job)=>renderJobCard(job,job.fitScore)).join('')}</div>`:`<div class="empty-state"><div class="empty-icon">⌕</div><h3>${feedFailed?'Live job feeds are unavailable':liveReady?'No live listings matched this prompt':'No roles matched this prompt'}</h3><p>${feedFailed?'Check your internet connection and retry this prompt.':'Try another title, location, or work mode in a follow-up prompt.'}</p>${liveReady?'<span class="assistant-caption">Listings can change. Confirm details on the original source before applying.</span>':''}</div>`}`}
+  </section>`;
+}
+
 function renderChat() {
-  const chat = getChat();
-  const hasSearch = !!chat?.hasSearch;
-  const query = chat?.query || '';
-  const searchRecord=liveSearchByChat.get(chat?.id);
-  const currentSearch=searchRecord?.query===query ? searchRecord : null;
-  const searching=currentSearch?.status==='loading';
-  const liveReady=currentSearch?.status==='ready';
-  const feedFailed=currentSearch?.status==='error';
-  const results = hasSearch && !searching ? jobsForQuery(query) : [];
-  const feedNames=(currentSearch?.sources||[]).filter((source)=>source.ok).map((source)=>source.name);
-  const filters = [];
-  if (/remote/i.test(query)) filters.push('Remote');
-  else if (/hybrid/i.test(query)) filters.push('Hybrid');
-  if (/germany/i.test(query)) filters.push('Germany');
-  else if (/berlin/i.test(query)) filters.push('Berlin');
-  if (/english/i.test(query)) filters.push('English');
+  const chat=getChat(),turns=chat?.turns||[],hasSearch=turns.length>0,query=chat?.query||'';
+  const filters=[];
+  if(/remote/i.test(query))filters.push('Remote');else if(/hybrid/i.test(query))filters.push('Hybrid');
+  if(/germany/i.test(query))filters.push('Germany');else if(/berlin/i.test(query))filters.push('Berlin');
+  if(/english/i.test(query))filters.push('English');
   return `<div class="chat-layout"><section class="chat-main">
     <div class="chat-heading"><span class="eyebrow">A calmer way to find your next role</span><h1>Good work starts with a good fit.</h1><p>Tell me what you’re looking for. I’ll bring the right roles into one place.</p></div>
     <div class="conversation">
-      ${hasSearch ? `<div class="message-row user"><div class="message-bubble">${esc(query)}</div></div>
-        ${searching ? `<div class="empty-state"><div class="empty-icon">⌕</div><h3>Searching current listings…</h3><p>Checking Arbeitnow and Remotive for matching roles.</p></div>` : `<div class="result-head"><span><strong>${results.length} ${results.length===1?'role':'roles'}</strong> ${liveReady?`from live feeds${feedNames.length?` · ${esc(feedNames.join(' + '))}`:''}, ranked by fit`:feedFailed?'sample listings · live feeds unavailable':'live listings, ranked by fit'}</span><div><button class="text-button" data-action="edit-search">Edit search</button>${feedFailed?` <button class="text-button" data-action="rerun-search">Retry</button>`:''}</div></div>
-        ${results.length ? `<div class="result-list">${results.map(renderJobCard).join('')}</div>` : `<div class="empty-state"><div class="empty-icon">⌕</div><h3>${feedFailed?'Live job feeds are unavailable':liveReady?'No live listings matched this search':'No roles matched those filters'}</h3><p>${feedFailed?'Live feeds could not be reached and no sample roles match this search. Check your internet connection and retry.':'Try a broader title, remove a location, or switch the work mode.'}</p>${liveReady?'<span class="assistant-caption">Job listings can change. Confirm details on the original source before applying.</span>':'<button class="secondary-button" data-action="clear-search">Clear filters</button>'}</div>`}`}
-      ` : `<div class="assistant-intro"><div class="empty-icon">✳</div><h2>What job should we look for?</h2><p>Type a search in your own words, or start with one of these.</p><div class="suggestion-list"><button class="suggestion-chip" data-query="Remote Python jobs in Germany, English, 2+ years experience">Remote Python jobs in Germany</button><button class="suggestion-chip" data-query="Data analyst, hybrid, Berlin">Data analyst, hybrid, Berlin</button><button class="suggestion-chip" data-query="Junior ML roles, English speaking">Junior ML roles, English speaking</button></div><span class="assistant-caption">Your confirmed profile helps make the matches more useful.</span></div>`}
+      ${hasSearch?turns.map((turn,index)=>renderConversationTurn(turn,index,turns.length)).join(''):`<div class="assistant-intro"><div class="empty-icon">✳</div><h2>What job should we look for?</h2><p>Type a search in your own words, or start with one of these.</p><div class="suggestion-list"><button class="suggestion-chip" data-query="Remote Python jobs in Germany, English, 2+ years experience">Remote Python jobs in Germany</button><button class="suggestion-chip" data-query="Data analyst, hybrid, Berlin">Data analyst, hybrid, Berlin</button><button class="suggestion-chip" data-query="Junior ML roles, English speaking">Junior ML roles, English speaking</button></div><span class="assistant-caption">Your confirmed profile helps make the matches more useful.</span></div>`}
     </div>
-    <div class="composer-wrap"><div class="filters-row">${(filters.length?filters:['Work mode','Location','Language']).map((filter) => `<button class="filter-pill" data-action="filter-chip" data-filter="${esc(filter)}">${esc(filter)}${filter==='Work mode'||filter==='Location'||filter==='Language'?' ▾':''}</button>`).join('')}<button class="filter-pill" data-action="more-filters">＋ More filters</button><label class="voice-language-control"><span>Voice</span><select id="voice-language" aria-label="Voice search language">${voiceLanguageOptions.map(([value,label])=>`<option value="${value}" ${voiceLanguage===value?'selected':''}>${esc(label)}</option>`).join('')}</select></label></div>
+    <div class="composer-wrap"><div class="filters-row">${(filters.length?filters:['Work mode','Location','Language']).map((filter)=>`<button class="filter-pill" data-action="filter-chip" data-filter="${esc(filter)}">${esc(filter)}${filter==='Work mode'||filter==='Location'||filter==='Language'?' ▾':''}</button>`).join('')}<button class="filter-pill" data-action="more-filters">＋ More filters</button><label class="voice-language-control"><span>Voice</span><select id="voice-language" aria-label="Voice search language">${voiceLanguageOptions.map(([value,label])=>`<option value="${value}" ${voiceLanguage===value?'selected':''}>${esc(label)}</option>`).join('')}</select></label></div>
       ${renderVoicePanel()}
-      <form class="composer" id="search-form"><input id="search-query" name="query" value="${esc(voiceState.status==='review'?voiceState.queryDraft:voiceState.baseQuery||'')}" aria-label="Describe the job you want" placeholder="Try “remote data roles in Germany”" autocomplete="off" /><button class="secondary-button voice-button ${voiceState.status==='listening'?'is-listening':''}" type="button" data-action="voice-search" aria-label="${voiceState.status==='listening'?'Listening; tap to stop':'Start voice search'}" aria-pressed="${voiceState.status==='listening'}">◉ <span>${voiceState.status==='listening'?'Listening':'Speak'}</span></button><button class="primary-button" type="submit">Search <span>↗</span></button></form>
-      <p class="assistant-caption">Search terms and profile filters stay in this app. Your CV and profile are never sent to job sites. Your browser may use its speech service to transcribe voice; Hireloom does not save audio. Review the transcript before searching.</p>
+      <form class="composer" id="search-form"><input id="search-query" name="query" value="${esc(voiceState.status==='review'?voiceState.queryDraft:voiceState.baseQuery||'')}" aria-label="Describe the job you want" placeholder="Ask a follow-up or search another role" autocomplete="off" /><button class="secondary-button voice-button ${voiceState.status==='listening'?'is-listening':''}" type="button" data-action="voice-search" aria-label="${voiceState.status==='listening'?'Listening; tap to stop':'Start voice search'}" aria-pressed="${voiceState.status==='listening'}">◉ <span>${voiceState.status==='listening'?'Listening':'Speak'}</span></button><button class="primary-button" type="submit">Send <span>↗</span></button></form>
+      <p class="assistant-caption">Search terms and profile filters stay in this app. Your CV and profile are never sent to job sites. Your browser may use its speech service to transcribe voice; Hireloom does not save audio. Review the transcript before sending.</p>
     </div>
   </section></div>`;
 }
@@ -482,7 +494,7 @@ function cancelVoiceSearch(shouldRender=true,preserveInput=false) {
 }
 
 function finishLogin(account) {
-  authData.lastEmail=account.email;saveAuth();state.profile.email=account.email;state.loggedOut=false;state.view='chat';persist();session=true;authMode='login';authMessage='';if(getChat()?.hasSearch)startLiveSearch(getChat());else render();toast('Welcome to your Hireloom workspace.','success');
+  authData.lastEmail=account.email;saveAuth();state.profile.email=account.email;state.loggedOut=false;state.view='chat';persist();session=true;authMode='login';authMessage='';if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Welcome to your Hireloom workspace.','success');
 }
 async function loginUser(formData) {
   const email=normalizeEmail(formData.get('email')), password=String(formData.get('password')||'');
@@ -507,7 +519,7 @@ async function createAccount(formData) {
     const salt=crypto.getRandomValues(new Uint8Array(16)),iterations=210000;
     const account={name,email,salt:toHex(salt),hash:await passwordHash(password,salt,iterations),iterations,createdAt:new Date().toISOString()};
     authData.accounts.push(account);authData.lastEmail=email;saveAuth();
-    state.profile.name=name;state.profile.email=email;state.loggedOut=false;state.view='chat';persist();session=true;authMode='login';authMessage='';if(getChat()?.hasSearch)startLiveSearch(getChat());else render();toast('Local demo account created.','success');
+    state.profile.name=name;state.profile.email=email;state.loggedOut=false;state.view='chat';persist();session=true;authMode='login';authMessage='';if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Local demo account created.','success');
   } catch(error) { authMessage=error.message||'Could not create the local account.';render(); }
 }
 
@@ -515,41 +527,58 @@ function runSearch(query) {
   cancelVoiceSearch(false);
   let chat=getChat();
   if(!chat) {
-    chat={id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false};
+    chat={id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false,turns:[]};
     state.chats.unshift(chat);state.activeChatId=chat.id;
   }
-  chat.query=query;chat.title=query.length>33?`${query.slice(0,32)}…`:query;chat.date='Today';chat.hasSearch=true;
-  state.view='chat';persist();startLiveSearch(chat);
+  chat.turns=Array.isArray(chat.turns)?chat.turns:[];
+  const turn=makeSearchTurn(query,`turn-${Date.now()}-${Math.random().toString(36).slice(2,7)}`);
+  turn.status='loading';chat.turns.push(turn);chat.query=query;
+  if(chat.turns.length===1)chat.title=query.length>33?`${query.slice(0,32)}…`:query;
+  chat.date='Today';chat.hasSearch=true;state.view='chat';persist();startLiveSearch(chat,false,turn.id);
 }
-function startLiveSearch(chat, force=false) {
-  if(!chat?.hasSearch)return;
-  const cached=liveSearchByChat.get(chat.id);
-  if(!force && cached?.query===chat.query) {
-    liveSearch=cached;
+function startChatSearches(chat) {
+  if(!chat?.turns?.length)return;
+  for(const turn of chat.turns){if(!turn.resultsCaptured)startLiveSearch(chat,false,turn.id);}
+  const latest=latestTurn(chat),cached=latest&&liveSearchByTurn.get(latest.id);
+  liveSearch=cached||{chatId:chat.id,turnId:latest?.id||null,query:latest?.query||'',status:latest?.status||'idle',jobs:latest?.jobs||[],sources:latest?.sources||[]};
+  if(state.view==='chat')render();
+}
+function startLiveSearch(chat,force=false,turnId=null) {
+  const turn=chat?.turns?.find((item)=>item.id===turnId)||latestTurn(chat);
+  if(!chat||!turn)return;
+  if(!force&&turn.resultsCaptured){
+    const saved=liveSearchByTurn.get(turn.id);
+    if(saved)liveSearch=saved;
     if(state.view==='chat')render();
     return;
   }
+  const cached=liveSearchByTurn.get(turn.id);
+  if(!force&&cached?.status==='loading'){liveSearch=cached;if(state.view==='chat')render();return;}
   const requestId=++liveSearchSequence;
-  liveSearchRequestByChat.set(chat.id,requestId);
-  const entry={chatId:chat.id,query:chat.query,status:'loading',jobs:[],sources:[]};
-  liveSearchByChat.set(chat.id,entry);liveSearch=entry;
-  if(state.view==='chat')render();
-  const location=effectiveLocationTerms(chat.query).join(', ');
-  fetch(`/api/search-jobs?q=${encodeURIComponent(chat.query)}&location=${encodeURIComponent(location)}`)
+  liveSearchRequestByTurn.set(turn.id,requestId);
+  turn.status='loading';turn.response='';turn.resultsCaptured=false;turn.jobs=[];turn.totalResults=0;
+  const entry={chatId:chat.id,turnId:turn.id,query:turn.query,status:'loading',jobs:[],sources:[]};
+  liveSearchByTurn.set(turn.id,entry);liveSearch=entry;persist();
+  if(state.activeChatId===chat.id&&state.view==='chat')render();
+  const location=effectiveLocationTerms(turn.query).join(', ');
+  fetch(`/api/search-jobs?q=${encodeURIComponent(turn.query)}&location=${encodeURIComponent(location)}`)
     .then(async(response)=>{const body=await response.json();if(!response.ok)throw new Error(body.error||'Live job search failed.');return body;})
     .then((body)=>{
-      if(liveSearchRequestByChat.get(chat.id)!==requestId)return;
+      if(liveSearchRequestByTurn.get(turn.id)!==requestId)return;
       entry.sources=Array.isArray(body.sources)?body.sources:[];
       const hasSource=entry.sources.some((source)=>source.ok);
-      entry.jobs=hasSource&&Array.isArray(body.jobs)?body.jobs:[];
-      entry.status=hasSource?'ready':'error';
-      liveSearchByChat.set(chat.id,entry);
+      entry.jobs=hasSource&&Array.isArray(body.jobs)?body.jobs:[];entry.status=hasSource?'ready':'error';
+      turn.sources=entry.sources;turn.status=entry.status;turn.resultsCaptured=true;
+      if(hasSource){const ranked=jobsForQuery(turn.query,entry.jobs);turn.totalResults=ranked.length;turn.jobs=ranked.slice(0,10).map(snapshotJob);turn.response=ranked.length?`I found ${ranked.length} matching ${ranked.length===1?'role':'roles'}. Here are the ${Math.min(10,ranked.length)} closest matches.`:'I couldn’t find live listings that matched this prompt. Try another title, location, or work mode.';}
+      else{turn.totalResults=0;turn.jobs=[];turn.response='I couldn’t reach the live job feeds for this prompt. You can retry it.';}
+      liveSearchByTurn.set(turn.id,entry);persist();
       if(state.activeChatId===chat.id){liveSearch=entry;if(state.view==='chat')render();}
     })
     .catch(()=>{
-      if(liveSearchRequestByChat.get(chat.id)!==requestId)return;
+      if(liveSearchRequestByTurn.get(turn.id)!==requestId)return;
       entry.status='error';entry.jobs=[];entry.sources=[{name:'Arbeitnow',ok:false},{name:'Remotive',ok:false}];
-      liveSearchByChat.set(chat.id,entry);
+      turn.status='error';turn.resultsCaptured=true;turn.jobs=[];turn.sources=entry.sources;turn.totalResults=0;turn.response='I couldn’t reach the live job feeds for this prompt. You can retry it.';
+      liveSearchByTurn.set(turn.id,entry);persist();
       if(state.activeChatId===chat.id){liveSearch=entry;if(state.view==='chat')render();}
     });
 }
@@ -561,7 +590,7 @@ function openModal(markup) { $('#modal-root').innerHTML=`<div class="modal" role
 function closeModal() { $('#modal-root').innerHTML=''; }
 function showSearchEdit() {
   const query=latestQuery();
-  openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Edit your search</span><h2>Refine the roles</h2><p class="modal-copy">Save and rerun updates the results in this conversation. Your profile stays unchanged.</p><form id="edit-search-form"><div class="field" style="margin-top:14px"><label for="edit-query">Search</label><textarea id="edit-query" name="query" required>${esc(query)}</textarea></div><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button">Save and rerun</button></div></form>`);
+  openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Continue this conversation</span><h2>Refine with a new prompt</h2><p class="modal-copy">This adds a follow-up prompt and response. Earlier messages and results stay in the conversation.</p><form id="edit-search-form"><div class="field" style="margin-top:14px"><label for="edit-query">Follow-up prompt</label><textarea id="edit-query" name="query" required>${esc(query)}</textarea></div><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button">Send follow-up</button></div></form>`);
   $('#edit-search-form').addEventListener('submit',(event)=>{event.preventDefault();const q=new FormData(event.currentTarget).get('query');closeModal();runSearch(q);});
 }
 function showMoreFilters() {
@@ -653,8 +682,8 @@ function downloadApprovedCv(jobId) {
 }
 
 document.addEventListener('click',(event)=>{
-  const nav=event.target.closest('[data-nav]');if(nav){cancelVoiceSearch(false);state.view=nav.dataset.nav==='tracker'?'tracker':'chat';state.sidebarOpen=false;persist();if(state.view==='chat'&&getChat()?.hasSearch)startLiveSearch(getChat());else render();return;}
-  const chatButton=event.target.closest('[data-chat-id]');if(chatButton){cancelVoiceSearch(false);state.activeChatId=chatButton.dataset.chatId;state.view='chat';state.sidebarOpen=false;persist();if(getChat()?.hasSearch)startLiveSearch(getChat());else render();return;}
+  const nav=event.target.closest('[data-nav]');if(nav){cancelVoiceSearch(false);state.view=nav.dataset.nav==='tracker'?'tracker':'chat';state.sidebarOpen=false;persist();if(state.view==='chat'&&getChat()?.hasSearch)startChatSearches(getChat());else render();return;}
+  const chatButton=event.target.closest('[data-chat-id]');if(chatButton){cancelVoiceSearch(false);state.activeChatId=chatButton.dataset.chatId;state.view='chat';state.sidebarOpen=false;persist();if(getChat()?.hasSearch)startChatSearches(getChat());else render();return;}
   const jobButton=event.target.closest('[data-job]');if(jobButton){cancelVoiceSearch(false);state.selectedJobId=jobButton.dataset.job;state.view='job';state.sidebarOpen=false;persist();render();return;}
   const tab=event.target.closest('[data-profile-tab]');if(tab){state.profileTab=tab.dataset.profileTab;render();return;}
   const settingTab=event.target.closest('[data-settings-tab]');if(settingTab){state.settingsTab=settingTab.dataset.settingsTab;render();return;}
@@ -667,8 +696,8 @@ document.addEventListener('click',(event)=>{
     case 'show-login':authData.lastEmail=$('#signup-email')?.value||authData.lastEmail;saveAuth();authMode='login';authMessage='';render();break;
     case 'toggle-password':{const input=document.getElementById(id);if(input){input.type=input.type==='password'?'text':'password';action.textContent=input.type==='password'?'Show':'Hide';}break;}
     case 'delete-chat':{const chat=state.chats.find((item)=>item.id===id);if(!chat)break;pendingDeleteChatId=id;openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Your searches</span><h2>Delete this chat?</h2><p class="modal-copy">“${esc(chat.title)}” and its saved search will be removed from this browser.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="danger-button" data-action="confirm-delete-chat">Delete chat</button></div>`);break;}
-    case 'confirm-delete-chat':{const chatId=pendingDeleteChatId;if(!chatId)break;const removingActive=state.activeChatId===chatId;state.chats=state.chats.filter((chat)=>chat.id!==chatId);liveSearchByChat.delete(chatId);liveSearchRequestByChat.delete(chatId);pendingDeleteChatId=null;if(removingActive){if(!state.chats.length)state.chats.push({id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false});state.activeChatId=state.chats[0].id;state.view='chat';state.selectedJobId=null;liveSearch=liveSearchByChat.get(state.activeChatId)||{chatId:null,query:'',status:'idle',jobs:[],sources:[]};}persist();closeModal();render();if(removingActive&&getChat()?.hasSearch)startLiveSearch(getChat());toast('Chat deleted.','success');break;}
-    case 'new-chat':{cancelVoiceSearch(false);const chat={id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false};state.chats.unshift(chat);state.activeChatId=chat.id;state.view='chat';persist();render();break;}
+    case 'confirm-delete-chat':{const chatId=pendingDeleteChatId;if(!chatId)break;const removingActive=state.activeChatId===chatId,removed=state.chats.find((chat)=>chat.id===chatId);for(const turn of removed?.turns||[]){liveSearchByTurn.delete(turn.id);liveSearchRequestByTurn.delete(turn.id);}state.chats=state.chats.filter((chat)=>chat.id!==chatId);pendingDeleteChatId=null;if(removingActive){if(!state.chats.length)state.chats.push({id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false,turns:[]});state.activeChatId=state.chats[0].id;state.view='chat';state.selectedJobId=null;liveSearch={chatId:state.activeChatId,turnId:null,query:'',status:'idle',jobs:[],sources:[]};}persist();closeModal();render();if(removingActive&&getChat()?.hasSearch)startChatSearches(getChat());toast('Chat deleted.','success');break;}
+    case 'new-chat':{cancelVoiceSearch(false);const chat={id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false,turns:[]};state.chats.unshift(chat);state.activeChatId=chat.id;state.view='chat';persist();render();break;}
     case 'toggle-sidebar':state.sidebarOpen=!state.sidebarOpen;updateShell();break;
     case 'toggle-menu':$('#account-menu').classList.toggle('hidden');break;
     case 'open-profile':state.profileTab='about';setView('profile');break;
@@ -677,7 +706,7 @@ document.addEventListener('click',(event)=>{
     case 'edit-search':showSearchEdit();break;
     case 'clear-search':runSearch('Data jobs');break;
     case 'copy-search':navigator.clipboard?.writeText(latestQuery()).then(()=>toast('Search copied.','success')).catch(()=>toast('Copy the search text from the message.'));break;
-    case 'rerun-search':startLiveSearch(getChat(),true);toast('Live listings refreshed.','success');break;
+    case 'rerun-search':startLiveSearch(getChat(),true,latestTurn()?.id);toast('Latest response refreshed.','success');break;
     case 'voice-search':if(voiceState.status==='listening')stopVoiceSearch();else startVoiceSearch();break;
     case 'voice-stop':stopVoiceSearch();break;
     case 'voice-cancel':cancelVoiceSearch(true,true);break;
@@ -706,12 +735,12 @@ document.addEventListener('click',(event)=>{
     case 'toggle-setting':state.settings[action.dataset.setting]=!state.settings[action.dataset.setting];persist();render();break;
     case 'export-data':downloadData();break;
     case 'delete-data':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Privacy</span><h2>Delete local demo data?</h2><p class="modal-copy">This removes your saved profile, conversations, CV filename and tracker entries from this browser. This action cannot be undone.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="danger-button" data-action="confirm-delete">Delete data</button></div>`);break;
-    case 'confirm-delete':cancelVoiceSearch(false);localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(AUTH_KEY);state=initialState();authData={accounts:[],lastEmail:''};liveSearchByChat.clear();liveSearchRequestByChat.clear();liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};authMode='login';authMessage='';session=false;closeModal();render();toast('Local demo data deleted.','success');break;
+    case 'confirm-delete':cancelVoiceSearch(false);localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(AUTH_KEY);state=initialState();authData={accounts:[],lastEmail:''};liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};authMode='login';authMessage='';session=false;closeModal();render();toast('Local demo data deleted.','success');break;
     case 'reset-demo':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Reset demo</span><h2>Restore the sample workspace?</h2><p class="modal-copy">This resets your local profile, searches and applications to the sample data.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="confirm-reset">Restore demo</button></div>`);break;
-    case 'confirm-reset':cancelVoiceSearch(false);state=initialState();liveSearchByChat.clear();liveSearchRequestByChat.clear();liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();toast('Sample workspace restored.','success');break;
+    case 'confirm-reset':cancelVoiceSearch(false);state=initialState();liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();toast('Sample workspace restored.','success');break;
     case 'logout':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Account</span><h2>Log out of Hireloom?</h2><p class="modal-copy">This ends the current demo session. Your local profile and tracker data will remain saved in this browser.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="confirm-logout">Log out</button></div>`);break;
-    case 'confirm-logout':cancelVoiceSearch(false);session=false;state.loggedOut=true;state.view='login';liveSearchByChat.clear();liveSearchRequestByChat.clear();liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();break;
-    case 'continue-demo':state.loggedOut=false;state.view='chat';persist();if(getChat()?.hasSearch)startLiveSearch(getChat());else render();toast('Returned to your saved demo workspace.','success');break;
+    case 'confirm-logout':cancelVoiceSearch(false);session=false;state.loggedOut=true;state.view='login';liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();break;
+    case 'continue-demo':state.loggedOut=false;state.view='chat';persist();if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Returned to your saved demo workspace.','success');break;
     case 'plan-select':toast(`${action.dataset.plan} is a prototype plan. No payment is collected.`);break;
     case 'close-modal':pendingDeleteChatId=null;closeModal();break;
     case 'review-cv-draft':showCvDraftReview();break;
