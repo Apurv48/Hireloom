@@ -1,0 +1,59 @@
+.\run.ps1<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f5f6f8" />
+  <title>Hireloom — your next role, on your terms</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell logged-out">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#" data-action="new-chat" aria-label="Hireloom home">
+        <span class="brand-mark"><span></span><span></span><span></span><span></span></span>
+        <span>hireloom</span>
+      </a>
+      <button class="new-chat-button" data-action="new-chat"><span class="plus-icon">＋</span> New search</button>
+      <div class="sidebar-label">YOUR SEARCHES <button class="quiet-icon" data-action="toggle-sidebar" aria-label="Hide sidebar">‹</button></div>
+      <div id="chat-list" class="chat-list"></div>
+      <div class="sidebar-bottom">
+        <div class="privacy-note"><span class="lock-icon">♧</span><span>Your search stays yours.<br /><small>Private by design</small></span></div>
+        <button class="profile-mini" data-action="open-profile">
+          <span class="avatar" id="sidebar-avatar">AM</span>
+          <span class="profile-mini-copy"><strong id="sidebar-name">Arjun Mehta</strong><small>Free plan</small></span>
+          <span class="chevron">···</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-column">
+      <header class="topbar">
+        <button class="mobile-menu icon-button" data-action="toggle-sidebar" aria-label="Open menu">☰</button>
+        <div class="mobile-brand">hireloom</div>
+        <div class="topbar-spacer"></div>
+        <nav class="top-nav" aria-label="Main navigation">
+          <button class="nav-link" data-nav="chat">Chat</button>
+          <button class="nav-link" data-nav="tracker">Tracker <span class="nav-count" id="tracker-count">0</span></button>
+        </nav>
+        <div class="topbar-divider"></div>
+        <button class="avatar top-avatar" id="avatar-menu-button" data-action="toggle-menu" aria-label="Account menu">AM</button>
+        <div class="account-menu hidden" id="account-menu">
+          <div class="account-menu-head"><strong id="menu-name">Arjun Mehta</strong><small id="menu-email">arjun@example.com</small><span class="plan-pill">Free plan</span></div>
+          <button data-action="open-profile">Profile <span>›</span></button>
+          <button data-action="open-settings">Settings <span>›</span></button>
+          <button data-action="open-plans">Plans <span>›</span></button>
+          <button class="menu-reset" data-action="reset-demo">Reset demo data</button>
+          <button class="menu-logout" data-action="logout">Log out <span>↗</span></button>
+        </div>
+      </header>
+      <section class="content" id="content" aria-live="polite"><section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Your next role, on your terms</span><h1>Welcome back</h1><p class="subhead">Log in to your Hireloom workspace.</p><form class="login-form"><div class="field"><label>Email</label><input type="email" placeholder="you@example.com" /></div><div class="field"><label>Password</label><input type="password" autocomplete="current-password" /></div><button class="primary-button login-submit">Log in</button></form><p class="login-switch">New to Hireloom? Create an account</p></div></section></section>
+    </main>
+  </div>
+
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  <div class="modal-root" id="modal-root"></div>
+  <script src="app.js" defer></script>
+</body>
+</html>
+
