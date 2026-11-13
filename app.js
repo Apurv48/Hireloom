@@ -569,7 +569,7 @@ function startLiveSearch(chat,force=false,turnId=null) {
       const hasSource=entry.sources.some((source)=>source.ok);
       entry.jobs=hasSource&&Array.isArray(body.jobs)?body.jobs:[];entry.status=hasSource?'ready':'error';
       turn.sources=entry.sources;turn.status=entry.status;turn.resultsCaptured=true;
-      if(hasSource){const ranked=jobsForQuery(turn.query,entry.jobs);turn.totalResults=ranked.length;turn.jobs=ranked.slice(0,10).map(snapshotJob);turn.response=ranked.length?`I found ${ranked.length} matching ${ranked.length===1?'role':'roles'}. Here are the ${Math.min(10,ranked.length)} closest matches.`:'I couldn’t find live listings that matched this prompt. Try another title, location, or work mode.';}
+      if(hasSource){const ranked=jobsForQuery(turn.query,entry.jobs);turn.totalResults=ranked.length;turn.jobs=ranked.map(snapshotJob);turn.response=ranked.length?`I found ${ranked.length} matching ${ranked.length===1?'role':'roles'}, ranked by fit.`:'I couldn’t find live listings that matched this prompt. Try another title, location, or work mode.';}
       else{turn.totalResults=0;turn.jobs=[];turn.response='I couldn’t reach the live job feeds for this prompt. You can retry it.';}
       liveSearchByTurn.set(turn.id,entry);persist();
       if(state.activeChatId===chat.id){liveSearch=entry;if(state.view==='chat')render();}
