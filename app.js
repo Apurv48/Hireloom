@@ -125,7 +125,7 @@ function queryLocationTerms(query) {
   const recognized=locationAliases.flatMap(([,aliases])=>aliases.filter(alias=>q.includes(` ${normalizedLocation(alias)} `)));
   const match=String(query||'').match(/\b(?:in|near|around|based\s+in|located\s+in)\s+(.+?)(?=\s+\b(?:remote|hybrid|onsite|on-site|english|german|french|spanish|hindi|junior|senior|for|with|jobs?|roles?|positions?|experience|years?)\b|[,;.!?]|$)/i);
   let explicit=[];
-  if(match){const candidate=cleanLocationTerm(match[1]);if(candidate&&!locationNoiseWords.test(candidate)&&!/\b(?:software|data|product|backend|front[- ]?end|engineering|analytics|design|marketing|finance|machine learning|ai|cybersecurity|developer|engineer|analyst)\b/i.test(candidate))explicit=splitLocationTerms(candidate);}
+  if(match){const candidate=cleanLocationTerm(match[1]);const refersToProfile=/^(?:me|here|my\s+(?:current\s+)?location|my\s+area|where\s+i\s+am)$/i.test(candidate);if(candidate&&!refersToProfile&&!locationNoiseWords.test(candidate)&&!/\b(?:software|data|product|backend|front[- ]?end|engineering|analytics|design|marketing|finance|machine learning|ai|cybersecurity|developer|engineer|analyst)\b/i.test(candidate))explicit=splitLocationTerms(candidate);}
   return [...new Set([...explicit,...recognized])];
 }
 function profileLocationTerms() {
