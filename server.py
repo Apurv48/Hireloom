@@ -397,6 +397,85 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
     text, page_count = extract_document(filename, payload)
     normalized = re.sub(r"\s+", " ", text).strip()
     lowered = normalized.lower()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    sections: dict[str, list[str]] = {"summary": [], "experience": [], "education": []}
+    current_section = ""
+    section_headers = {
+        "summary": re.compile(r"^(?:profile|professional summary|summary|objective|about me|career summary)\s*:?$", re.I),
+        "experience": re.compile(r"^(?:professional experience|work experience|employment history|work history|experience)\s*:?$", re.I),
+        "education": re.compile(r"^(?:education|educational background|academic background|academics)\s*:?$", re.I),
+    }
+    for line in lines:
+        candidate = line.strip(" \t•|:-–—")
+        section = next((key for key, pattern in section_headers.items() if pattern.match(candidate)), "")
+        if section:
+            current_section = section
+            continue
+        if re.match(r"^(?:skills|technical skills|projects|certifications|awards|languages|references)\s*:?$", candidate, re.I):
+            current_section = ""
+            continue
+        if current_section:
+            sections[current_section].append(line)
+
+    name_match = re.search(r"(?im)^\s*(?:full\s+)?name\s*[:\-]\s*([^\r\n|]{2,80})", text)
+    name = name_match.group(1).strip() if name_match else ""
+    if not name:
+        name_skip = re.compile(r"\b(?:resume|curriculum vitae|engineer|developer|analyst|manager|designer|scientist|consultant|architect|specialist|intern|objective|profile|summary)\b", re.I)
+        for line in lines[:10]:
+            candidate = re.split(r"[|•·]", line, maxsplit=1)[0].strip(" :-–—")
+            words = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*", candidate)
+            if 2 <= len(words) <= 4 and len(candidate) <= 60 and not re.search(r"[@\d:/]", candidate) and not name_skip.search(candidate):
+                name = candidate
+                break
+
+    title_match = re.search(r"(?im)^\s*(?:current\s+)?(?:professional\s+)?title\s*[:\-]\s*([^\r\n|]{2,100})", text)
+    role_terms = re.compile(r"\b(?:engineer|developer|analyst|manager|designer|scientist|consultant|architect|specialist|intern|director|lead|recruiter|teacher|nurse|accountant|researcher|sales|product|marketing)\b", re.I)
+    title = title_match.group(1).strip() if title_match else ""
+    experience = {"title": "", "company": "", "dates": "", "detail": ""}
+    date_pattern = re.compile(r"\b(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?(?:19|20)\d{2}\s*(?:[-–—]|to)\s*(?:present|current|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?(?:19|20)\d{2}|present|current", re.I)
+    exp_lines = sections["experience"]
+    for index, line in enumerate(exp_lines[:12]):
+        clean = line.strip(" \t•*-–—")
+        if not clean:
+            continue
+        date_match = date_pattern.search(clean)
+        if date_match and not experience["dates"]:
+            experience["dates"] = date_match.group(0).strip()
+        if not title and role_terms.search(clean):
+            pieces = [part.strip() for part in re.split(r"\s*(?:\||·|•|—)\s*|\s+at\s+", clean, maxsplit=2, flags=re.I) if part.strip()]
+            experience["title"] = pieces[0][:100]
+            if len(pieces) > 1 and not date_pattern.search(pieces[1]):
+                experience["company"] = date_pattern.sub("", pieces[1]).strip(" ,|-–—")[:100]
+            if not title:
+                title = experience["title"]
+            if date_match:
+                experience["title"] = date_pattern.sub("", experience["title"]).strip(" ,|-–—")
+            for next_line in exp_lines[index + 1:index + 5]:
+                bullet = next_line.strip(" \t•*-–—")
+                if bullet and not role_terms.search(bullet) and not date_pattern.search(bullet):
+                    experience["detail"] = (experience["detail"] + " " + bullet).strip()[:500]
+            break
+    if not experience["title"] and title:
+        experience["title"] = title
+    if not title:
+        for line in lines[:12]:
+            if role_terms.search(line) and len(line) <= 100:
+                title = re.split(r"\s*[|·—]\s*", line, maxsplit=1)[0].strip()
+                break
+
+    location_match = re.search(r"(?im)^\s*(?:current\s+)?(?:location|based\s+in|address)\s*[:\-]\s*([^\r\n|]{2,100})", text)
+    location = location_match.group(1).strip() if location_match else ""
+    if not location:
+        aliases = sorted((alias for values in LOCATION_ALIASES.values() for alias in values if len(alias) > 3), key=len, reverse=True)
+        for line in lines[:18]:
+            for segment in re.split(r"\s*[|·•]\s*", line):
+                normalized_segment = normalize_location(segment)
+                if any(re.search(r"(?<!\w)" + re.escape(normalize_location(alias)) + r"(?!\w)", normalized_segment) for alias in aliases):
+                    location = segment.strip(" ,;:-")[:100]
+                    break
+            if location:
+                break
+
     skills: list[str] = []
     for skill in SKILLS:
         if re.search(r"(?<![\w+#.])" + re.escape(skill.lower()) + r"(?![\w+#.])", lowered):
@@ -405,16 +484,26 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
         skills.append("JavaScript")
     emails = re.findall(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, flags=re.I)
     phones = re.findall(r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)", text)
+    summary = " ".join(sections["summary"]).strip()[:600]
+    education = " · ".join(sections["education"][:4]).strip()[:400]
+    if not education:
+        education_match = re.search(r"(?im)^\s*(?:education|degree|qualification)\s*[:\-]\s*([^\r\n]{3,160})", text)
+        education = education_match.group(1).strip() if education_match else ""
     warning = ""
     if not normalized:
         warning = "No selectable text found. Scanned CVs need OCR, which is not included in this demo."
     elif not skills:
         warning = "No skills from the demo skill list were found. You can add skills manually in your profile."
     return {
+        "name": name,
         "email": emails[0] if emails else "",
         "phone": phones[0].strip() if phones else "",
+        "location": location,
+        "title": title,
+        "education": education,
+        "experience": experience if any(experience.values()) else {},
         "skills": skills,
-        "summary": "",
+        "summary": summary,
         "pageCount": page_count,
         "warning": warning,
     }
