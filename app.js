@@ -457,10 +457,10 @@ async function createAccount(formData) {
   } catch(error) { authMessage=error.message||'Could not create the local account.';render(); }
 }
 
-function runSearch(query, existingChat=false) {
+function runSearch(query) {
   cancelVoiceSearch(false);
   let chat=getChat();
-  if(!chat || !existingChat && chat.hasSearch) {
+  if(!chat) {
     chat={id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false};
     state.chats.unshift(chat);state.activeChatId=chat.id;
   }
@@ -507,7 +507,7 @@ function closeModal() { $('#modal-root').innerHTML=''; }
 function showSearchEdit() {
   const query=latestQuery();
   openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Edit your search</span><h2>Refine the roles</h2><p class="modal-copy">Save and rerun updates the results in this conversation. Your profile stays unchanged.</p><form id="edit-search-form"><div class="field" style="margin-top:14px"><label for="edit-query">Search</label><textarea id="edit-query" name="query" required>${esc(query)}</textarea></div><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button">Save and rerun</button></div></form>`);
-  $('#edit-search-form').addEventListener('submit',(event)=>{event.preventDefault();const q=new FormData(event.currentTarget).get('query');closeModal();runSearch(q,true);});
+  $('#edit-search-form').addEventListener('submit',(event)=>{event.preventDefault();const q=new FormData(event.currentTarget).get('query');closeModal();runSearch(q);});
 }
 function showMoreFilters() {
   const query=latestQuery();
@@ -515,7 +515,7 @@ function showMoreFilters() {
   const location=['Germany','Berlin','Munich','European Union','India','Netherlands'].find((value)=>query.toLowerCase().includes(value.toLowerCase()))||'';
   const language=['English','German','French','Spanish'].find((value)=>query.toLowerCase().includes(value.toLowerCase()))||'';
   openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Search preferences</span><h2>More filters</h2><p class="modal-copy">These apply only to this search. Remote roles are checked against the countries they allow.</p><form id="filters-form"><div class="field" style="margin-top:15px"><label>Work mode</label><select name="mode"><option value="">Any mode</option>${['Remote','Hybrid','Onsite'].map((v)=>`<option ${mode===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="field" style="margin-top:11px"><label>Country or region</label><select name="location"><option value="">Any location</option>${['Germany','Berlin','Munich','European Union','India','Netherlands'].map((v)=>`<option ${location===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="field" style="margin-top:11px"><label>Working language</label><select name="language"><option value="">Any language</option>${['English','German','French','Spanish'].map((v)=>`<option ${language===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button">Apply filters</button></div></form>`);
-  $('#filters-form').addEventListener('submit',(event)=>{event.preventDefault();const values=new FormData(event.currentTarget);const base=tokensForSearch(query).filter((word)=>!['remote','hybrid','onsite','germany','berlin','munich','english','german','french','spanish','european','union'].includes(word)).join(' ');const q=[base,values.get('mode'),values.get('location'),values.get('language')].filter(Boolean).join(' ');closeModal();runSearch(q||'Data jobs',true);});
+  $('#filters-form').addEventListener('submit',(event)=>{event.preventDefault();const values=new FormData(event.currentTarget);const base=tokensForSearch(query).filter((word)=>!['remote','hybrid','onsite','germany','berlin','munich','english','german','french','spanish','european','union'].includes(word)).join(' ');const q=[base,values.get('mode'),values.get('location'),values.get('language')].filter(Boolean).join(' ');closeModal();runSearch(q||'Data jobs');});
 }
 
 function openApply(job) {
