@@ -550,31 +550,58 @@ def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:
 def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
     text, page_count = extract_document(filename, payload)
     normalized = re.sub(r"\s+", " ", text).strip()
-    lowered = normalized.lower()
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    sections: dict[str, list[str]] = {"summary": [], "experience": [], "education": []}
+    sections: dict[str, list[str]] = {
+        "summary": [], "experience": [], "education": [], "skills": [],
+        "achievements": [], "certifications": [], "languages": [], "preferences": [], "roles": [],
+    }
     current_section = ""
     section_headers = {
-        "summary": re.compile(r"^(?:profile|professional summary|summary|objective|about me|career summary)\s*:?$", re.I),
-        "experience": re.compile(r"^(?:professional experience|work experience|employment history|work history|experience)\s*:?$", re.I),
-        "education": re.compile(r"^(?:education|educational background|academic background|academics)\s*:?$", re.I),
+        "summary": re.compile(r"^(?:profile|professional profile|professional summary|summary|objective|about me|career summary|personal statement)$", re.I),
+        "experience": re.compile(r"^(?:professional experience|work experience|employment history|work history|career history|experience|professional background)$", re.I),
+        "education": re.compile(r"^(?:education|educational background|academic background|academics|academic qualifications)$", re.I),
+        "skills": re.compile(r"^(?:skills|technical skills|core skills|key skills|core competencies|areas of expertise|technical expertise|technologies|tools and technologies|skills and tools)$", re.I),
+        "achievements": re.compile(r"^(?:achievements?|key achievements|accomplishments|awards?|honors?|honours?)$", re.I),
+        "certifications": re.compile(r"^(?:certifications?|certificates?|licenses and certifications|licences and certifications|licenses|licences)$", re.I),
+        "languages": re.compile(r"^(?:languages|language skills|language proficiency|languages and proficiency)$", re.I),
+        "preferences": re.compile(r"^(?:job preferences|employment preferences|career preferences|work preferences|preferences|job search preferences)$", re.I),
+        "roles": re.compile(r"^(?:target roles|interested roles|roles of interest|target positions|positions of interest)$", re.I),
     }
+    other_sections = re.compile(r"^(?:projects?|publications?|volunteering|volunteer experience|interests|hobbies|references|personal details|contact details|internships?|extracurricular activities)\s*:?$", re.I)
     for line in lines:
         candidate = line.strip(" \t•|:-–—")
-        section = next((key for key, pattern in section_headers.items() if pattern.match(candidate)), "")
+        section = next((key for key, pattern in section_headers.items() if pattern.match(candidate.rstrip(":"))), "")
         if section:
             current_section = section
             continue
-        if re.match(r"^(?:skills|technical skills|projects|certifications|awards|languages|references)\s*:?$", candidate, re.I):
+        if other_sections.match(candidate):
             current_section = ""
             continue
         if current_section:
-            sections[current_section].append(line)
+            sections[current_section].append(candidate)
 
-    name_match = re.search(r"(?im)^\s*(?:full\s+)?name\s*[:\-]\s*([^\r\n|]{2,80})", text)
-    name = name_match.group(1).strip() if name_match else ""
+    def labeled_value(labels: str) -> str:
+        match = re.search(rf"(?im)^\s*(?:{labels})\s*[:=–—-]\s*(.*?)\s*$", text)
+        return match.group(1).strip(" \t|·-–—") if match else ""
+
+    def cleaned_lines(values: list[str]) -> list[str]:
+        return [re.sub(r"\s+", " ", value.strip(" \t•*-–—▪◦")).strip() for value in values if value.strip(" \t•*-–—▪◦")]
+
+    def list_values(values: list[str]) -> list[str]:
+        found: list[str] = []
+        for line in cleaned_lines(values):
+            for item in re.split(r"\s*(?:[,;|·•▪◦]|\s{2,})\s*", line):
+                item = re.sub(r"^(?:skills?|tools?|technologies|languages?|certifications?|achievements?)\s*:\s*", "", item, flags=re.I).strip(" \t:-–—")
+                if item and len(item) <= 180 and item.lower() not in {value.lower() for value in found}:
+                    found.append(item)
+        return found
+
+    def first_nonempty(*values: str) -> str:
+        return next((value.strip() for value in values if value and value.strip()), "")
+
+    name = labeled_value(r"(?:full\s+)?name")
     if not name:
-        name_skip = re.compile(r"\b(?:resume|curriculum vitae|engineer|developer|analyst|manager|designer|scientist|consultant|architect|specialist|intern|objective|profile|summary)\b", re.I)
+        name_skip = re.compile(r"\b(?:resume|curriculum vitae|engineer|developer|analyst|manager|designer|scientist|consultant|architect|specialist|intern|objective|profile|summary|linkedin|portfolio)\b", re.I)
         for line in lines[:10]:
             candidate = re.split(r"[|•·]", line, maxsplit=1)[0].strip(" :-–—")
             words = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*", candidate)
@@ -582,43 +609,60 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
                 name = candidate
                 break
 
-    title_match = re.search(r"(?im)^\s*(?:current\s+)?(?:professional\s+)?title\s*[:\-]\s*([^\r\n|]{2,100})", text)
-    role_terms = re.compile(r"\b(?:engineer|developer|analyst|manager|designer|scientist|consultant|architect|specialist|intern|director|lead|recruiter|teacher|nurse|accountant|researcher|sales|product|marketing)\b", re.I)
-    title = title_match.group(1).strip() if title_match else ""
-    experience = {"title": "", "company": "", "dates": "", "detail": ""}
-    date_pattern = re.compile(r"\b(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?(?:19|20)\d{2}\s*(?:[-–—]|to)\s*(?:present|current|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?(?:19|20)\d{2}|present|current", re.I)
-    exp_lines = sections["experience"]
-    for index, line in enumerate(exp_lines[:12]):
-        clean = line.strip(" \t•*-–—")
+    role_terms = re.compile(r"\b(?:engineer|developer|analyst|manager|designer|scientist|consultant|architect|specialist|intern|director|lead|recruiter|teacher|nurse|accountant|researcher|sales|product|marketing|coordinator|administrator|technician|founder|officer|assistant|professor|executive|operator|writer|editor|mechanic|therapist|doctor|lawyer|chef|account executive|strategist|producer|owner|auditor|consultant|advisor|associate|technologist|support|operations|human resources|hr|pharmacist|veterinarian|trainer|developer advocate)\b", re.I)
+    date_pattern = re.compile(r"\b(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?(?:19|20)\d{2}(?:\s*(?:[-–—]|to)\s*(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?(?:(?:19|20)\d{2}|present|current|now))?|\b(?:present|current|now)\b", re.I)
+    title = labeled_value(r"(?:current\s+title|professional\s+title|current(?:\s*/\s*or)?\s*target\s+(?:role|title)|target\s+(?:role|title)|current\s+(?:role|position)|job\s+title|position\s+title|role)")
+    experience_lines = sections["experience"] + [value for value in [labeled_value(r"(?:professional\s+)?experience|employment\s+history|work\s+history")] if value]
+    experiences: list[dict[str, str]] = []
+    current_experience: dict[str, str] | None = None
+    for raw_line in experience_lines[:120]:
+        clean = raw_line.strip(" \t•*-–—▪◦")
         if not clean:
             continue
+        is_bullet = bool(re.match(r"^\s*[•*▪◦-]", raw_line))
         date_match = date_pattern.search(clean)
-        if date_match and not experience["dates"]:
-            experience["dates"] = date_match.group(0).strip()
-        if not title and role_terms.search(clean):
-            pieces = [part.strip() for part in re.split(r"\s*(?:\||·|•|—)\s*|\s+at\s+", clean, maxsplit=2, flags=re.I) if part.strip()]
-            experience["title"] = pieces[0][:100]
-            if len(pieces) > 1 and not date_pattern.search(pieces[1]):
-                experience["company"] = date_pattern.sub("", pieces[1]).strip(" ,|-–—")[:100]
-            if not title:
-                title = experience["title"]
-            if date_match:
-                experience["title"] = date_pattern.sub("", experience["title"]).strip(" ,|-–—")
-            for next_line in exp_lines[index + 1:index + 5]:
-                bullet = next_line.strip(" \t•*-–—")
-                if bullet and not role_terms.search(bullet) and not date_pattern.search(bullet):
-                    experience["detail"] = (experience["detail"] + " " + bullet).strip()[:500]
-            break
-    if not experience["title"] and title:
-        experience["title"] = title
+        without_dates = date_pattern.sub("", clean).strip(" ,;|·-–—")
+        looks_like_role = bool(role_terms.search(without_dates)) and len(without_dates) <= 140
+        separated = bool(re.search(r"\s+(?:at|@)\s+|\s*[|·—]\s*", without_dates, re.I))
+        starts_experience = looks_like_role and not is_bullet and (bool(date_match) or separated or len(without_dates.split()) <= 10)
+        if starts_experience:
+            if len(experiences) >= 20:
+                break
+            title_company = re.split(r"\s+(?:at|@)\s+", without_dates, maxsplit=1, flags=re.I)
+            if len(title_company) == 1:
+                title_company = [part.strip() for part in re.split(r"\s*(?:\||·|—|,)\s*", without_dates, maxsplit=2) if part.strip()]
+            item_title = title_company[0].strip(" ,;|·-–—")[:120]
+            item_company = title_company[1].strip(" ,;|·-–—")[:120] if len(title_company) > 1 else ""
+            current_experience = {"title": item_title, "company": item_company, "dates": date_match.group(0).strip() if date_match else "", "detail": ""}
+            experiences.append(current_experience)
+            continue
+        if current_experience:
+            if date_match and not current_experience["dates"]:
+                current_experience["dates"] = date_match.group(0).strip()
+                remainder = date_pattern.sub("", clean).strip(" ,;|·-–—")
+                if remainder and not current_experience["company"]:
+                    current_experience["company"] = remainder[:120]
+            elif not is_bullet and not current_experience["company"] and len(clean.split()) <= 6 and len(clean) <= 100:
+                current_experience["company"] = clean[:120]
+            elif clean and len(clean) > 4:
+                current_experience["detail"] = (current_experience["detail"] + " " + clean).strip()[:1200]
+
+    if not experiences:
+        exp_title = first_nonempty(labeled_value(r"(?:current\s+)?(?:job\s+)?(?:role|position|job\s+title)"), title)
+        exp_company = labeled_value(r"(?:current\s+)?(?:company|employer|organization|organisation)")
+        exp_dates = labeled_value(r"(?:employment\s+)?(?:dates|duration|tenure)")
+        exp_detail = labeled_value(r"(?:key\s+)?(?:responsibilities|experience\s+details|role\s+description)")
+        if any((exp_title, exp_company, exp_dates, exp_detail)):
+            experiences.append({"title": exp_title, "company": exp_company, "dates": exp_dates, "detail": exp_detail})
+    if not title and experiences:
+        title = experiences[0]["title"]
     if not title:
         for line in lines[:12]:
             if role_terms.search(line) and len(line) <= 100:
                 title = re.split(r"\s*[|·—]\s*", line, maxsplit=1)[0].strip()
                 break
 
-    location_match = re.search(r"(?im)^\s*(?:current\s+)?(?:location|based\s+in|address)\s*[:\-]\s*([^\r\n|]{2,100})", text)
-    location = location_match.group(1).strip() if location_match else ""
+    location = labeled_value(r"(?:current\s+)?(?:location|based\s+in|address|city\s+and\s+country)")
     if not location:
         aliases = sorted((alias for values in LOCATION_ALIASES.values() for alias in values if len(alias) > 3), key=len, reverse=True)
         for line in lines[:18]:
@@ -630,34 +674,95 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
             if location:
                 break
 
-    skills: list[str] = []
+    skills = list_values(sections["skills"] + [value for value in [labeled_value(r"(?:technical\s+)?skills?|core\s+competencies|technologies|tools") ] if value])
     for skill in SKILLS:
-        if re.search(r"(?<![\w+#.])" + re.escape(skill.lower()) + r"(?![\w+#.])", lowered):
+        if re.search(r"(?<![\w+#.])" + re.escape(skill.lower()) + r"(?![\w+#.])", normalized, re.I) and skill.lower() not in {value.lower() for value in skills}:
             skills.append(skill)
-    if re.search(r"\bjs\b", lowered) and "JavaScript" not in skills:
+    if re.search(r"\bjs\b", normalized, re.I) and "JavaScript" not in skills:
         skills.append("JavaScript")
     emails = re.findall(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, flags=re.I)
     phones = re.findall(r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)", text)
-    summary = " ".join(sections["summary"]).strip()[:600]
-    education = " · ".join(sections["education"][:4]).strip()[:400]
+    email = first_nonempty(labeled_value(r"(?:email|e-mail|email\s+address)"), emails[0] if emails else "")
+    phone = first_nonempty(labeled_value(r"(?:phone|telephone|mobile|mobile\s+number|contact\s+number)"), phones[0].strip() if phones else "")
+    summary = first_nonempty(" ".join(cleaned_lines(sections["summary"])), labeled_value(r"(?:professional\s+)?(?:profile\s+)?summary|objective|about\s+me"))[:1200]
+    education = " · ".join(cleaned_lines(sections["education"]))[:1200]
     if not education:
-        education_match = re.search(r"(?im)^\s*(?:education|degree|qualification)\s*[:\-]\s*([^\r\n]{3,160})", text)
-        education = education_match.group(1).strip() if education_match else ""
+        education = labeled_value(r"(?:education|degree|qualification|highest\s+qualification)")[:1200]
+    if not education:
+        education = " · ".join(line.strip(" \t•*-–—") for line in lines if re.search(r"\b(?:bachelor|master|ph\.?d|doctorate|diploma|degree|university|college|institute|school)\b", line, re.I))[:1200]
+
+    achievements = list_values(sections["achievements"] + [value for value in [labeled_value(r"(?:key\s+)?(?:achievements|accomplishments|awards|honors|honours)")] if value])
+    certifications = list_values(sections["certifications"] + [value for value in [labeled_value(r"(?:certifications?|certificates?|licenses?|licences?)")] if value])
+    roles = list_values(sections["roles"] + [value for value in [labeled_value(r"(?:interested\s+roles?|roles?\s+of\s+interest|target\s+roles?|target\s+positions?|desired\s+roles?)")] if value])
+    languages = first_nonempty(" · ".join(cleaned_lines(sections["languages"])), labeled_value(r"(?:spoken\s+)?languages?(?:\s+and\s+proficiency)?|language\s+proficiency"))[:600]
+
+    gender_raw = labeled_value(r"gender|sex")
+    gender_key = re.sub(r"[^a-z]+", " ", gender_raw.lower()).strip()
+    gender_map = {"female": "Woman", "woman": "Woman", "male": "Man", "man": "Man", "non binary": "Non-binary", "nonbinary": "Non-binary", "prefer not to say": "Prefer not to say", "self describe": "Self describe", "other": "Self describe"}
+    gender = gender_map.get(gender_key, gender_raw if gender_raw in {"Woman", "Man", "Non-binary", "Self describe", "Prefer not to say"} else "")
+
+    dob_raw = labeled_value(r"(?:date\s+of\s+birth|birth\s+date|dob)")
+    dob = ""
+    if dob_raw:
+        from datetime import date
+        for date_format in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%d %b %Y", "%d %B %Y", "%B %d, %Y", "%b %d, %Y"):
+            try:
+                dob = datetime.strptime(dob_raw.strip(), date_format).date().isoformat()
+                break
+            except ValueError:
+                continue
+        if not dob:
+            numeric = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", dob_raw.strip())
+            if numeric and int(numeric.group(1)) > 12:
+                try:
+                    dob = date(int(numeric.group(3)), int(numeric.group(2)), int(numeric.group(1))).isoformat()
+                except ValueError:
+                    pass
+
+    preference_text = " ".join(sections["preferences"])
+    work_modes_raw = first_nonempty(labeled_value(r"(?:preferred\s+)?work\s+modes?|work\s+arrangement|employment\s+type"), preference_text)
+    work_modes: list[str] = []
+    for pattern, mode in ((r"\bremote\b", "Remote"), (r"\bhybrid\b", "Hybrid"), (r"\b(?:onsite|on-site|in[- ]office|office[- ]based)\b", "Onsite")):
+        if work_modes_raw and re.search(pattern, work_modes_raw, re.I):
+            work_modes.append(mode)
+    interested_location = first_nonempty(labeled_value(r"(?:interested|preferred|desired|target|work)\s+locations?|location\s+preferences?|preferred\s+work\s+location"))[:240]
+    scope_raw = labeled_value(r"(?:search|job|location)\s+scope")
+    scope_key = re.sub(r"[^a-z]+", " ", scope_raw.lower()).strip()
+    scope = "Both" if any(term in scope_key for term in ("both", "national and international", "domestic and international")) else "International" if any(term in scope_key for term in ("international", "global", "worldwide")) else "National" if any(term in scope_key for term in ("national", "domestic", "local")) else ""
+    relocation = first_nonempty(
+        labeled_value(r"(?:relocation\s+preferences?|willing\s+to\s+relocate|open\s+to\s+relocation)"),
+        (match.group(0).strip() if (match := re.search(r"(?im)^\s*(?:willing\s+to\s+relocate|open\s+to\s+relocation)\b[^\n]*", text)) else ""),
+    )[:240]
+    salary = labeled_value(r"(?:expected\s+salary|desired\s+salary|target\s+salary|salary\s+expectation|salary\s+range|expected\s+compensation|desired\s+compensation)")[:120]
+    current_salary = labeled_value(r"(?:current\s+salary|current\s+compensation|present\s+salary)")[:120]
+
     warning = ""
     if not normalized:
         warning = "No selectable text found. Scanned CVs need OCR, which is not included in this demo."
     elif not skills:
-        warning = "No skills from the demo skill list were found. You can add skills manually in your profile."
+        warning = "No skills section or known skills were detected. Review the blank fields and add any skills manually."
     return {
         "name": name,
-        "email": emails[0] if emails else "",
-        "phone": phones[0].strip() if phones else "",
+        "gender": gender,
+        "dob": dob,
+        "email": email,
+        "phone": phone,
         "location": location,
         "title": title,
         "education": education,
-        "experience": experience if any(experience.values()) else {},
+        "experience": experiences,
         "skills": skills,
         "summary": summary,
+        "achievements": achievements,
+        "certifications": certifications,
+        "roles": roles,
+        "languages": languages,
+        "interestedLocation": interested_location,
+        "workModes": work_modes,
+        "scope": scope,
+        "relocation": relocation,
+        "salary": salary,
+        "currentSalary": current_salary,
         "pageCount": page_count,
         "warning": warning,
     }
