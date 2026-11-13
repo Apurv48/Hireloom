@@ -19,7 +19,8 @@ The server binds to localhost. The app starts on the login screen every time, in
 - Filter the downloaded listings by work mode, location, skills, and profile preferences without sending the CV or profile to job sites.
 - Create a local demo account and log in with a password; passwords are hashed before browser storage.
 - Edit a candidate profile and preferences; add and remove skills.
-- Upload a PDF or DOCX (up to 5 MB), review extracted contact details and skills, then confirm them.
+- Upload a PDF or DOCX (up to 5 MB), review and edit extracted identity, contact, location, career, education and skills fields, then update the profile.
+- Delete individual saved search chats from the sidebar.
 - Review per-job match details, matched skills, gaps, and ATS readiness.
 - Edit, approve, or reject a job-specific CV draft built only from profile content.
 - Download an approved, ATS-friendly DOCX CV.
