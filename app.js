@@ -60,6 +60,7 @@ function loadAuth() {
 }
 let authData=loadAuth(), authMode='login', authMessage='', authDraft={name:'',email:''};
 let liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};
+let pendingDeleteChatId=null;
 const liveSearchByChat=new Map();
 const liveSearchRequestByChat=new Map();
 let liveSearchSequence=0;
@@ -221,7 +222,7 @@ function updateShell() {
   $$('.nav-link').forEach((button) => button.classList.toggle('active', (state.view === 'tracker' && button.dataset.nav === 'tracker') || (state.view !== 'tracker' && button.dataset.nav === 'chat')));
   $('#account-menu').classList.add('hidden');
   $$('.chat-item').forEach((button) => button.classList.toggle('active', button.dataset.chatId === state.activeChatId));
-  $('#chat-list').innerHTML = state.chats.map((chat) => `<button class="chat-item ${chat.id === state.activeChatId ? 'active' : ''}" data-chat-id="${esc(chat.id)}" title="${esc(chat.title)}">${esc(chat.title)}<small>${esc(chat.date || 'Today')}</small></button>`).join('');
+  $('#chat-list').innerHTML = state.chats.map((chat) => `<div class="chat-row"><button class="chat-item ${chat.id === state.activeChatId ? 'active' : ''}" data-chat-id="${esc(chat.id)}" title="${esc(chat.title)}">${esc(chat.title)}<small>${esc(chat.date || 'Today')}</small></button><button class="chat-delete-button" data-action="delete-chat" data-id="${esc(chat.id)}" aria-label="Delete chat: ${esc(chat.title)}" title="Delete chat">×</button></div>`).join('');
   $('#sidebar').classList.toggle('open', state.sidebarOpen);
 }
 function render() {
@@ -630,14 +631,12 @@ function handleUpload(file) {
 }
 function showCvDraftReview() {
   const pending=state.pendingCvDraft;if(!pending)return;
-  const d=pending.draft, suggestions=[];
-  if(d.email)suggestions.push(['email','Email',d.email]);
-  if(d.phone)suggestions.push(['phone','Phone',d.phone]);
-  if(d.skills?.length)suggestions.push(['skills','Skills',d.skills.join(', ')]);
-  if(d.summary)suggestions.push(['summary','Profile text',d.summary]);
-  if(d.warning)suggestions.push(['warning','Parser note',d.warning]);
-  openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">CV parsed locally</span><h2>Review your profile draft</h2><p class="modal-copy">Select the details you want to add to your profile. Nothing is used for matching until you confirm it.</p><form id="cv-draft-form"><div class="modal-section"><h4>${esc(pending.fileName)} · ${d.pageCount?`${d.pageCount} pages · `:''}extracted details</h4>${suggestions.length?suggestions.map(([key,label,value])=>`<label class="draft-row"><input type="checkbox" name="fields" value="${key}" ${key==='warning'?'disabled':''} ${key==='warning'?'':'checked'} /><span><strong>${esc(label)}</strong><small>${esc(value)}</small></span></label>`).join(''):'<p>No profile fields were extracted. You can still keep the CV filename in your local profile.</p>'}</div><div class="modal-actions"><button type="button" class="secondary-button" data-action="discard-cv-draft">Discard draft</button><button class="primary-button">Confirm selected details</button></div></form>`);
-  $('#cv-draft-form').addEventListener('submit',(event)=>{event.preventDefault();const selected=new FormData(event.currentTarget).getAll('fields');const draft=state.pendingCvDraft.draft;const p=state.profile;if(selected.includes('email')&&draft.email)p.email=draft.email;if(selected.includes('phone')&&draft.phone)p.phone=draft.phone;if(selected.includes('skills')&&draft.skills)p.skills=[...new Set([...p.skills,...draft.skills])];if(selected.includes('summary')&&draft.summary)p.summary=draft.summary.slice(0,220);p.cvName=state.pendingCvDraft.fileName;p.cvStatus=`Parsed locally · ${draft.pageCount?`${draft.pageCount} pages · `:''}profile confirmed`;state.pendingCvDraft=null;persist();closeModal();render();toast('Selected CV details added to your profile.','success');});
+  const d=pending.draft, fields=[['name','Full name',d.name],['email','Email',d.email],['phone','Phone',d.phone],['location','Current location',d.location],['title','Current / target role',d.title],['summary','Profile summary',d.summary],['education','Education',d.education],['skills','Skills',d.skills?.join(', ')||'']].filter(([, ,value])=>String(value||'').trim());
+  const exp=d.experience||{}, hasExperience=Object.values(exp).some((value)=>String(value||'').trim());
+  const fieldRow=([key,label,value])=>`<div class="draft-row"><input aria-label="Add ${esc(label)} to profile" type="checkbox" name="fields" value="${key}" checked /><div class="draft-edit"><strong>${esc(label)}</strong>${key==='summary'?`<textarea name="value-${key}" rows="3">${esc(value)}</textarea>`:`<input name="value-${key}" value="${esc(value)}" />`}</div></div>`;
+  const experienceRow=hasExperience?`<div class="draft-row"><input aria-label="Add recent experience to profile" type="checkbox" name="fields" value="experience" checked /><div class="draft-edit"><strong>Most recent experience</strong><input aria-label="Experience role" name="experience-title" placeholder="Role" value="${esc(exp.title||'')}" /><input aria-label="Experience company" name="experience-company" placeholder="Company" value="${esc(exp.company||'')}" /><input aria-label="Experience dates" name="experience-dates" placeholder="Dates" value="${esc(exp.dates||'')}" /><textarea aria-label="Experience details" name="experience-detail" rows="3" placeholder="What you did">${esc(exp.detail||'')}</textarea></div></div>`:'';
+  openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">CV parsed locally</span><h2>Update your profile from this CV</h2><p class="modal-copy">Check the extracted fields, edit anything that needs correcting, then choose what to add. Your current profile stays unchanged until you confirm.</p><form id="cv-draft-form"><div class="modal-section"><h4>${esc(pending.fileName)} · ${d.pageCount?`${d.pageCount} pages · `:''}extracted details</h4>${fields.length||hasExperience?[...fields.map(fieldRow),experienceRow].filter(Boolean).join(''):'<p>No editable profile details were extracted. You can still save the CV filename.</p>'}${d.warning?`<p class="cv-warning">${esc(d.warning)}</p>`:''}</div><div class="modal-actions"><button type="button" class="secondary-button" data-action="discard-cv-draft">Discard draft</button><button class="primary-button">Update profile</button></div></form>`);
+  $('#cv-draft-form').addEventListener('submit',(event)=>{event.preventDefault();const form=new FormData(event.currentTarget),selected=form.getAll('fields'),draft=state.pendingCvDraft.draft,p=state.profile;const assignments={name:'name',email:'email',phone:'phone',location:'location',title:'title',summary:'summary',education:'education'};for(const [field,key] of Object.entries(assignments)){const value=String(form.get(`value-${field}`)||'').trim();if(selected.includes(field)&&value)p[key]=field==='summary'?value.slice(0,600):value;}if(selected.includes('skills')){const parsedSkills=toList(form.get('value-skills'));p.skills=[...new Set([...p.skills,...parsedSkills])];}if(selected.includes('experience')){const current=p.experience?.[0]||{};const experience={...current};for(const [input,key] of [['experience-title','title'],['experience-company','company'],['experience-dates','dates'],['experience-detail','detail']]){const value=String(form.get(input)||'').trim();if(value)experience[key]=value;}p.experience=[experience,...(p.experience||[]).slice(1)];}p.cvName=state.pendingCvDraft.fileName;p.cvStatus=`Parsed locally · ${draft.pageCount?`${draft.pageCount} pages · `:''}profile updated`;state.pendingCvDraft=null;persist();closeModal();render();toast('Your profile was updated from the CV.','success');});
 }
 function setView(view) { cancelVoiceSearch(false);state.view=view;state.sidebarOpen=false;persist();render();window.scrollTo({top:0,behavior:'smooth'}); }
 function downloadData() {
@@ -667,6 +666,8 @@ document.addEventListener('click',(event)=>{
     case 'show-signup':authDraft={name:'',email:$('#login-email')?.value||authData.lastEmail};authMode='signup';authMessage='';render();break;
     case 'show-login':authData.lastEmail=$('#signup-email')?.value||authData.lastEmail;saveAuth();authMode='login';authMessage='';render();break;
     case 'toggle-password':{const input=document.getElementById(id);if(input){input.type=input.type==='password'?'text':'password';action.textContent=input.type==='password'?'Show':'Hide';}break;}
+    case 'delete-chat':{const chat=state.chats.find((item)=>item.id===id);if(!chat)break;pendingDeleteChatId=id;openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Your searches</span><h2>Delete this chat?</h2><p class="modal-copy">“${esc(chat.title)}” and its saved search will be removed from this browser.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="danger-button" data-action="confirm-delete-chat">Delete chat</button></div>`);break;}
+    case 'confirm-delete-chat':{const chatId=pendingDeleteChatId;if(!chatId)break;const removingActive=state.activeChatId===chatId;state.chats=state.chats.filter((chat)=>chat.id!==chatId);liveSearchByChat.delete(chatId);liveSearchRequestByChat.delete(chatId);pendingDeleteChatId=null;if(removingActive){if(!state.chats.length)state.chats.push({id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false});state.activeChatId=state.chats[0].id;state.view='chat';state.selectedJobId=null;liveSearch=liveSearchByChat.get(state.activeChatId)||{chatId:null,query:'',status:'idle',jobs:[],sources:[]};}persist();closeModal();render();if(removingActive&&getChat()?.hasSearch)startLiveSearch(getChat());toast('Chat deleted.','success');break;}
     case 'new-chat':{cancelVoiceSearch(false);const chat={id:`chat-${Date.now()}`,title:'New search',date:'Today',query:'',hasSearch:false};state.chats.unshift(chat);state.activeChatId=chat.id;state.view='chat';persist();render();break;}
     case 'toggle-sidebar':state.sidebarOpen=!state.sidebarOpen;updateShell();break;
     case 'toggle-menu':$('#account-menu').classList.toggle('hidden');break;
@@ -712,7 +713,7 @@ document.addEventListener('click',(event)=>{
     case 'confirm-logout':cancelVoiceSearch(false);session=false;state.loggedOut=true;state.view='login';liveSearchByChat.clear();liveSearchRequestByChat.clear();liveSearch={chatId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();break;
     case 'continue-demo':state.loggedOut=false;state.view='chat';persist();if(getChat()?.hasSearch)startLiveSearch(getChat());else render();toast('Returned to your saved demo workspace.','success');break;
     case 'plan-select':toast(`${action.dataset.plan} is a prototype plan. No payment is collected.`);break;
-    case 'close-modal':closeModal();break;
+    case 'close-modal':pendingDeleteChatId=null;closeModal();break;
     case 'review-cv-draft':showCvDraftReview();break;
     case 'discard-cv-draft':state.pendingCvDraft=null;closeModal();render();toast('CV draft discarded.');break;
   }
@@ -726,7 +727,7 @@ document.addEventListener('click',(event)=>{
   if(event.target.id==='modal-root')closeModal();
   if(!event.target.closest('#account-menu')&&!event.target.closest('#avatar-menu-button'))$('#account-menu').classList.add('hidden');
 });
-document.addEventListener('keydown',(event)=>{if(event.key==='Escape'){closeModal();$('#account-menu').classList.add('hidden');state.sidebarOpen=false;updateShell();}});
+document.addEventListener('keydown',(event)=>{if(event.key==='Escape'){pendingDeleteChatId=null;closeModal();$('#account-menu').classList.add('hidden');state.sidebarOpen=false;updateShell();}});
 
 render();
 
