@@ -70,6 +70,7 @@ function loadAuth() {
 let authData=loadAuth(), authMode='login', authMessage='', authDraft={name:'',email:''};
 let liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};
 let pendingDeleteChatId=null;
+let editingPromptTurnId=null;
 const liveSearchByTurn=new Map();
 const liveSearchRequestByTurn=new Map();
 let liveSearchSequence=0;
@@ -306,10 +307,10 @@ function renderConversationTurn(turn,index,count) {
   const liveReady=status==='ready',feedFailed=status==='error';
   const results=turn.resultsCaptured?turn.jobs:(liveReady?jobsForQuery(turn.query,search?.jobs||[]):[]);
   const feedNames=(turn.sources?.length?turn.sources:search?.sources||[]).filter((source)=>source.ok).map((source)=>source.name);
-  const latest=index===count-1;
+  const editing=editingPromptTurnId===turn.id;
   const response=turn.response||(liveReady?'Here are the closest matching roles I found.':feedFailed?'I couldn’t reach the live job feeds for this search. You can retry it.':'I’m searching current listings for this request.');
-  return `<section class="conversation-turn"><div class="message-row user"><div class="message-bubble">${esc(turn.query)}</div></div><div class="message-row assistant"><div class="assistant-response"><span class="assistant-name">Hireloom</span><div class="message-bubble assistant-bubble">${searching?'<span class="typing-indicator">Searching current listings…</span>':esc(response)}</div></div></div>
-    ${searching?`<div class="empty-state turn-loading"><div class="empty-icon">⌕</div><h3>Finding roles for this prompt…</h3><p>Checking current listings while keeping your earlier messages here.</p></div>`:`<div class="result-head"><span><strong>${Number(turn.totalResults??results.length)} ${Number(turn.totalResults??results.length)===1?'role':'roles'}</strong> ${liveReady?`from live feeds${feedNames.length?` · ${esc(feedNames.join(' + '))}`:''}, ranked by fit`:feedFailed?'live feeds unavailable':'matching roles'}</span><div>${latest?`<button class="text-button" data-action="edit-search">Refine with a new prompt</button>${feedFailed?` <button class="text-button" data-action="rerun-search">Retry</button>`:''}`:''}</div></div>
+  return `<section class="conversation-turn" data-turn-id="${esc(turn.id)}"><div class="message-row user">${editing?`<div class="user-prompt-edit"><textarea class="prompt-edit-input" data-original="${esc(turn.query)}" aria-label="Edit prompt">${esc(turn.query)}</textarea><div class="prompt-edit-actions"><button class="secondary-button" type="button" data-action="cancel-prompt-edit">Cancel</button><button class="primary-button" type="button" data-action="save-prompt-edit" data-turn-id="${esc(turn.id)}" disabled>Save</button></div></div>`:`<div class="user-prompt-content"><div class="message-bubble">${esc(turn.query)}</div><div class="prompt-actions"><button class="prompt-icon-button" type="button" data-action="copy-prompt" data-turn-id="${esc(turn.id)}" aria-label="Copy prompt" title="Copy prompt">⧉</button><button class="prompt-icon-button" type="button" data-action="edit-prompt" data-turn-id="${esc(turn.id)}" aria-label="Edit prompt" title="Edit prompt">✎</button><button class="prompt-icon-button" type="button" data-action="rerun-prompt" data-turn-id="${esc(turn.id)}" aria-label="Rerun prompt" title="Rerun prompt">↻</button></div></div>`}</div><div class="message-row assistant"><div class="assistant-response"><span class="assistant-name">Hireloom</span><div class="message-bubble assistant-bubble">${searching?'<span class="typing-indicator">Searching current listings…</span>':esc(response)}</div></div></div>
+    ${searching?`<div class="empty-state turn-loading"><div class="empty-icon">⌕</div><h3>Finding roles for this prompt…</h3><p>Checking current listings while keeping your earlier messages here.</p></div>`:`<div class="result-head"><span><strong>${Number(turn.totalResults??results.length)} ${Number(turn.totalResults??results.length)===1?'role':'roles'}</strong> ${liveReady?`from live feeds${feedNames.length?` · ${esc(feedNames.join(' + '))}`:''}, ranked by fit`:feedFailed?'live feeds unavailable':'matching roles'}</span></div>
     ${results.length?`<div class="result-list">${results.map((job)=>renderJobCard(job,job.fitScore)).join('')}</div>`:`<div class="empty-state"><div class="empty-icon">⌕</div><h3>${feedFailed?'Live job feeds are unavailable':liveReady?'No live listings matched this prompt':'No roles matched this prompt'}</h3><p>${feedFailed?'Check your internet connection and retry this prompt.':'Try another title, location, or work mode in a follow-up prompt.'}</p>${liveReady?'<span class="assistant-caption">Listings can change. Confirm details on the original source before applying.</span>':''}</div>`}`}
   </section>`;
 }
@@ -425,6 +426,8 @@ function attachViewEvents() {
   if(languageSelect) languageSelect.addEventListener('change',()=>{voiceLanguage=languageSelect.value;try{localStorage.setItem(VOICE_LANGUAGE_KEY,voiceLanguage);}catch{};});
   const searchInput=$('#search-query');
   if(searchInput) searchInput.addEventListener('input',()=>{if(voiceState.status==='review'){voiceState.queryDraft=searchInput.value;const transcript=$('#voice-transcript');if(transcript)transcript.textContent=voiceState.transcript||searchInput.value;}});
+  const promptEdit=$('.prompt-edit-input');
+  if(promptEdit) promptEdit.addEventListener('input',()=>{const save=promptEdit.closest('.user-prompt-edit')?.querySelector('[data-action="save-prompt-edit"]');if(save)save.disabled=!promptEdit.value.trim()||promptEdit.value.trim()===promptEdit.dataset.original.trim();});
   const profileForm=$('#profile-form');
   if(profileForm) profileForm.addEventListener('submit',(event)=>{event.preventDefault();saveProfile(new FormData(profileForm));});
   const upload=$('#cv-upload');
@@ -553,6 +556,11 @@ function runSearch(query) {
   turn.status='loading';chat.turns.push(turn);chat.query=query;
   if(chat.turns.length===1)chat.title=query.length>33?`${query.slice(0,32)}…`:query;
   chat.date='Today';chat.hasSearch=true;state.view='chat';persist();startLiveSearch(chat,false,turn.id);
+}
+function copyPromptText(query) {
+  if(navigator.clipboard?.writeText)return navigator.clipboard.writeText(query);
+  const field=document.createElement('textarea');field.value=query;field.setAttribute('readonly','');field.style.position='fixed';field.style.opacity='0';document.body.append(field);field.select();
+  const copied=document.execCommand('copy');field.remove();return copied?Promise.resolve():Promise.reject(new Error('Clipboard access is unavailable.'));
 }
 function startChatSearches(chat) {
   if(!chat?.turns?.length)return;
@@ -769,10 +777,13 @@ document.addEventListener('click',(event)=>{
     case 'open-profile':state.profileTab='about';setView('profile');break;
     case 'open-settings':state.settingsTab='account';setView('settings');break;
     case 'open-plans':setView('plans');break;
+    case 'edit-prompt':editingPromptTurnId=action.dataset.turnId;render();$('.prompt-edit-input')?.focus();break;
+    case 'cancel-prompt-edit':editingPromptTurnId=null;render();break;
+    case 'save-prompt-edit':{const turn=getChat()?.turns?.find((item)=>item.id===action.dataset.turnId),input=action.closest('.conversation-turn')?.querySelector('.prompt-edit-input'),query=String(input?.value||'').trim();if(!turn||!query||query===turn.query.trim())break;editingPromptTurnId=null;runSearch(query);toast('Edited prompt added to the conversation.','success');break;}
+    case 'copy-prompt':{const turn=getChat()?.turns?.find((item)=>item.id===action.dataset.turnId);if(turn)copyPromptText(turn.query).then(()=>toast('Prompt copied.','success')).catch(()=>toast('Could not copy the prompt.','error'));break;}
+    case 'rerun-prompt':{const chat=getChat(),turnId=action.dataset.turnId;if(chat?.turns?.some((item)=>item.id===turnId)){startLiveSearch(chat,true,turnId);toast('Prompt search refreshed.','success');}break;}
     case 'edit-search':showSearchEdit();break;
     case 'clear-search':runSearch('Data jobs');break;
-    case 'copy-search':navigator.clipboard?.writeText(latestQuery()).then(()=>toast('Search copied.','success')).catch(()=>toast('Copy the search text from the message.'));break;
-    case 'rerun-search':startLiveSearch(getChat(),true,latestTurn()?.id);toast('Latest response refreshed.','success');break;
     case 'voice-search':if(voiceState.status==='listening')stopVoiceSearch();else startVoiceSearch();break;
     case 'voice-stop':stopVoiceSearch();break;
     case 'voice-cancel':cancelVoiceSearch(true,true);break;
@@ -825,4 +836,5 @@ document.addEventListener('click',(event)=>{
 document.addEventListener('keydown',(event)=>{if(event.key==='Escape'){pendingDeleteChatId=null;closeModal();$('#account-menu').classList.add('hidden');state.sidebarOpen=false;updateShell();}});
 
 render();
+
 
