@@ -38,8 +38,14 @@ SKILLS = [
 ]
 
 FEED_CACHE: dict[str, tuple[float, list[dict[str, object]], str]] = {}
-FEED_CACHE_LOCKS = {"arbeitnow": threading.Lock(), "remotive": threading.Lock()}
-FEED_CACHE_TTLS = {"arbeitnow": 30 * 60, "remotive": 6 * 60 * 60}
+FEED_CACHE_LOCKS = {
+    "arbeitnow": threading.Lock(), "remotive": threading.Lock(), "jobicy": threading.Lock(),
+    "himalayas": threading.Lock(), "remoteok": threading.Lock(),
+}
+FEED_CACHE_TTLS = {
+    "arbeitnow": 30 * 60, "remotive": 6 * 60 * 60, "jobicy": 4 * 60 * 60,
+    "himalayas": 24 * 60 * 60, "remoteok": 6 * 60 * 60,
+}
 FEED_USER_AGENT = "HireloomMVP/1.0 (local personal job search)"
 
 
@@ -83,10 +89,17 @@ def safe_https_url(value: object) -> str:
     return url if urlsplit(url).scheme == "https" and urlsplit(url).netloc else ""
 
 
-def fetch_json(url: str) -> dict[str, object]:
+def fetch_json_value(url: str) -> object:
     request = Request(url, headers={"Accept": "application/json", "User-Agent": FEED_USER_AGENT})
     with urlopen(request, timeout=12) as response:
         payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, (dict, list)):
+        raise ValueError("The job feed returned an unexpected response.")
+    return payload
+
+
+def fetch_json(url: str) -> dict[str, object]:
+    payload = fetch_json_value(url)
     if not isinstance(payload, dict):
         raise ValueError("The job feed returned an unexpected response.")
     return payload
@@ -117,11 +130,30 @@ def known_skills(text: str) -> list[str]:
     return [skill for skill in SKILLS if re.search(r"(?<![\w+#.])" + re.escape(skill.lower()) + r"(?![\w+#.])", lowered)]
 
 
-COUNTRIES = [
+COUNTRY_CODES = {
+    "AE": "United Arab Emirates", "AR": "Argentina", "AT": "Austria", "AU": "Australia",
+    "BD": "Bangladesh", "BE": "Belgium", "BG": "Bulgaria", "BH": "Bahrain", "BR": "Brazil",
+    "CA": "Canada", "CH": "Switzerland", "CL": "Chile", "CN": "China", "CO": "Colombia",
+    "CR": "Costa Rica", "CY": "Cyprus", "CZ": "Czechia", "DE": "Germany", "DK": "Denmark",
+    "DO": "Dominican Republic", "DZ": "Algeria", "EC": "Ecuador", "EE": "Estonia", "EG": "Egypt",
+    "ES": "Spain", "FI": "Finland", "FR": "France", "GB": "United Kingdom", "GH": "Ghana",
+    "GR": "Greece", "HK": "Hong Kong", "HR": "Croatia", "HU": "Hungary", "ID": "Indonesia",
+    "IE": "Ireland", "IL": "Israel", "IN": "India", "IQ": "Iraq", "IS": "Iceland", "IT": "Italy",
+    "JP": "Japan", "KE": "Kenya", "KR": "South Korea", "KW": "Kuwait", "LK": "Sri Lanka",
+    "LT": "Lithuania", "LU": "Luxembourg", "LV": "Latvia", "MA": "Morocco", "MX": "Mexico",
+    "MY": "Malaysia", "NG": "Nigeria", "NL": "Netherlands", "NO": "Norway", "NP": "Nepal",
+    "NZ": "New Zealand", "OM": "Oman", "PE": "Peru", "PH": "Philippines", "PK": "Pakistan",
+    "PL": "Poland", "PT": "Portugal", "QA": "Qatar", "RO": "Romania", "RS": "Serbia",
+    "RU": "Russia", "SA": "Saudi Arabia", "SE": "Sweden", "SG": "Singapore", "SI": "Slovenia",
+    "SK": "Slovakia", "TH": "Thailand", "TN": "Tunisia", "TR": "Türkiye", "TW": "Taiwan",
+    "UA": "Ukraine", "US": "United States", "UY": "Uruguay", "VE": "Venezuela", "VN": "Vietnam",
+    "ZA": "South Africa", "ZM": "Zambia", "ZW": "Zimbabwe", "UK": "United Kingdom",
+}
+COUNTRIES = sorted(set(COUNTRY_CODES.values()) | {
     "Germany", "Netherlands", "France", "Spain", "Italy", "United Kingdom", "Ireland", "Sweden",
     "Denmark", "Norway", "Poland", "Portugal", "Belgium", "Austria", "Switzerland", "India",
     "United States", "Canada", "Australia", "Singapore",
-]
+})
 
 
 def eligibility_for(location: str, remote: bool) -> list[str]:
@@ -165,7 +197,7 @@ def normalize_job(record: dict[str, object], provider: str) -> dict[str, object]
         posted, published = posted_label(record.get("created_at"))
         source_url = "https://www.arbeitnow.com/"
         job_id = "arbeitnow-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
-    else:
+    elif provider == "Remotive":
         title = str(record.get("title") or "").strip()
         company = str(record.get("company_name") or "Company not listed").strip()
         location = str(record.get("candidate_required_location") or "Remote location not listed").strip()
@@ -177,6 +209,49 @@ def normalize_job(record: dict[str, object], provider: str) -> dict[str, object]
         posted, published = posted_label(record.get("publication_date"))
         source_url = "https://remotive.com/"
         job_id = "remotive-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
+    elif provider == "Jobicy":
+        title = str(record.get("jobTitle") or "").strip()
+        company = str(record.get("companyName") or "Company not listed").strip()
+        location = str(record.get("jobGeo") or "Worldwide").strip()
+        description = plain_text(record.get("jobDescription") or record.get("jobExcerpt"))
+        external_url = safe_https_url(record.get("url"))
+        remote = True
+        tags = record.get("jobIndustry") if isinstance(record.get("jobIndustry"), list) else []
+        job_types = record.get("jobType") if isinstance(record.get("jobType"), list) else []
+        tags = [*tags, *job_types]
+        slug = str(record.get("id") or external_url or title)
+        posted, published = posted_label(record.get("pubDate"))
+        source_url = "https://jobicy.com/jobs-rss-feed"
+        job_id = "jobicy-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
+    elif provider == "Himalayas":
+        title = str(record.get("title") or "").strip()
+        company = str(record.get("companyName") or "Company not listed").strip()
+        restrictions = record.get("locationRestrictions") if isinstance(record.get("locationRestrictions"), list) else []
+        eligible_locations = [COUNTRY_CODES.get(str(item).strip().upper(), str(item).strip()) for item in restrictions if str(item).strip()]
+        location = ", ".join(eligible_locations) if eligible_locations else "Worldwide"
+        description = plain_text(record.get("description") or record.get("excerpt"))
+        external_url = safe_https_url(record.get("applicationLink"))
+        remote = True
+        categories = record.get("categories") if isinstance(record.get("categories"), list) else []
+        tags = categories + [record.get("employmentType", ""), record.get("seniority", "")]
+        slug = str(record.get("guid") or external_url or title)
+        posted, published = posted_label(record.get("pubDate"))
+        source_url = "https://himalayas.app/"
+        job_id = "himalayas-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
+    elif provider == "Remote OK":
+        title = str(record.get("position") or record.get("title") or "").strip()
+        company = str(record.get("company") or "Company not listed").strip()
+        location = str(record.get("location") or "Worldwide").strip()
+        description = plain_text(record.get("description"))
+        external_url = safe_https_url(record.get("url") or record.get("apply_url"))
+        remote = True
+        tags = record.get("tags") if isinstance(record.get("tags"), list) else []
+        slug = str(record.get("id") or record.get("slug") or external_url or title)
+        posted, published = posted_label(record.get("date"))
+        source_url = "https://remoteok.com/"
+        job_id = "remoteok-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
+    else:
+        return None
     if not title or not external_url:
         return None
     full_text = f"{title} {company} {location} {description} {' '.join(str(item) for item in tags)}"
@@ -208,12 +283,54 @@ def load_remotive() -> list[dict[str, object]]:
     return [job for record in records if isinstance(record, dict) if (job := normalize_job(record, "Remotive"))]
 
 
+def load_jobicy() -> list[dict[str, object]]:
+    jobs: list[dict[str, object]] = []
+    cursor = ""
+    for _ in range(3):
+        params: dict[str, object] = {"count": 100}
+        if cursor:
+            params["cursor"] = cursor
+        payload = fetch_json("https://jobicy.com/api/jobs?" + urlencode(params))
+        if payload.get("success") is False:
+            raise ValueError("Jobicy could not return listings.")
+        records = payload.get("jobs") if isinstance(payload.get("jobs"), list) else []
+        jobs.extend(job for record in records if isinstance(record, dict) if (job := normalize_job(record, "Jobicy")))
+        cursor = str(payload.get("nextCursor") or "")
+        if not cursor:
+            break
+    return jobs
+
+
+def load_himalayas() -> list[dict[str, object]]:
+    jobs: list[dict[str, object]] = []
+    cursor = ""
+    for _ in range(5):
+        params: dict[str, object] = {"limit": 20}
+        if cursor:
+            params["cursor"] = cursor
+        payload = fetch_json("https://himalayas.app/jobs/api?" + urlencode(params))
+        records = payload.get("jobs") if isinstance(payload.get("jobs"), list) else []
+        jobs.extend(job for record in records if isinstance(record, dict) if (job := normalize_job(record, "Himalayas")))
+        cursor = str(payload.get("nextCursor") or "")
+        if not cursor:
+            break
+    return jobs
+
+
+def load_remoteok() -> list[dict[str, object]]:
+    payload = fetch_json_value("https://remoteok.com/api")
+    records = payload if isinstance(payload, list) else payload.get("jobs", []) if isinstance(payload, dict) else []
+    if not isinstance(records, list):
+        return []
+    return [job for record in records if isinstance(record, dict) if (job := normalize_job(record, "Remote OK"))][:500]
+
+
 def cached_feed(name: str, loader) -> tuple[list[dict[str, object]], str, bool]:
     lock = FEED_CACHE_LOCKS[name]
     with lock:
         cached = FEED_CACHE.get(name)
         now = time.monotonic()
-        cache_ttl = 60 if cached and cached[2] else FEED_CACHE_TTLS[name]
+        cache_ttl = FEED_CACHE_TTLS[name]
         if cached and now - cached[0] < cache_ttl:
             return cached[1], cached[2], True
         try:
@@ -299,6 +416,9 @@ def location_matches(job: dict[str, object], terms: list[str]) -> bool:
         wanted = normalize_location(term)
         if not wanted:
             continue
+        # Worldwide remote postings accept candidates from any profile or chat location.
+        if mode == "Remote" and "worldwide" in eligible:
+            return True
         if contains(job_location, wanted) or any(contains(item, wanted) for item in eligible):
             return True
         country = next((name for name, aliases in LOCATION_ALIASES.items() if any(normalize_location(alias) == wanted for alias in aliases)), "")
@@ -349,8 +469,12 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
 
 def search_live_jobs(query: str, location_hint: str = "") -> dict[str, object]:
     from concurrent.futures import ThreadPoolExecutor
-    providers = [("arbeitnow", load_arbeitnow, "Arbeitnow"), ("remotive", load_remotive, "Remotive")]
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    providers = [
+        ("arbeitnow", load_arbeitnow, "Arbeitnow"), ("remotive", load_remotive, "Remotive"),
+        ("jobicy", load_jobicy, "Jobicy"), ("himalayas", load_himalayas, "Himalayas"),
+        ("remoteok", load_remoteok, "Remote OK"),
+    ]
+    with ThreadPoolExecutor(max_workers=len(providers)) as pool:
         results = list(pool.map(lambda item: cached_feed(item[0], item[1]), providers))
     all_jobs: list[dict[str, object]] = []
     sources: list[dict[str, object]] = []
