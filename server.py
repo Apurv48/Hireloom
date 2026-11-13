@@ -14,6 +14,7 @@ from xml.sax.saxutils import escape
 from email import policy
 from email.parser import BytesParser
 from html import unescape
+from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
