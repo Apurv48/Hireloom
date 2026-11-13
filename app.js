@@ -32,7 +32,7 @@ function initialState() {
   return {
     profile,
     chats:[
-      { id:'seed-remote', title:'Remote Python jobs in Germany', date:'Today', query:'Remote Python jobs in Germany, English, 2+ years experience', hasSearch:true },
+      { id:'seed-remote', title:'Remote Python jobs', date:'Today', query:'Remote Python jobs, English, 2+ years experience', hasSearch:true },
       { id:'seed-analyst', title:'Data analyst, hybrid, Berlin', date:'Yesterday', query:'Data analyst, hybrid, Berlin', hasSearch:true },
       { id:'seed-ml', title:'Junior ML roles, English speaking', date:'Last week', query:'Junior ML roles, English speaking', hasSearch:true }
     ],
@@ -46,7 +46,8 @@ function loadState() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (!parsed || !parsed.profile || !Array.isArray(parsed.chats)) return initialState();
-    return { ...initialState(), ...parsed, view:'login', loggedOut:true, profile:{ ...defaultProfile(), ...parsed.profile }, settings:{ ...initialState().settings, ...(parsed.settings || {}) } };
+    const chats=parsed.chats.map((chat)=>chat.id==='seed-remote'&&chat.query==='Remote Python jobs in Germany, English, 2+ years experience'?{...chat,title:'Remote Python jobs',query:'Remote Python jobs, English, 2+ years experience'}:chat);
+    return { ...initialState(), ...parsed, chats, view:'login', loggedOut:true, profile:{ ...defaultProfile(), ...parsed.profile }, settings:{ ...initialState().settings, ...(parsed.settings || {}) } };
   } catch { return initialState(); }
 }
 let state = loadState();
@@ -99,16 +100,69 @@ function matchingSkills(job) {
   return job.skills.filter((skill) => mine.includes(normalizeSkill(skill).toLowerCase()));
 }
 function missingSkills(job) { const matched = matchingSkills(job); return job.skills.filter((skill) => !matched.includes(skill)); }
-function profileAllowsJob(job) {
+const locationAliases = [
+  ['United States',['united states','usa','us','new york','san francisco','los angeles','seattle','austin','boston','chicago','denver','atlanta','portland']],['United Kingdom',['united kingdom','uk','britain','england','london','manchester','edinburgh','birmingham','bristol','glasgow']],
+  ['Germany',['germany','berlin','munich','münchen','hamburg','frankfurt','cologne','köln','stuttgart','dusseldorf','düsseldorf']],
+  ['India',['india','bengaluru','bangalore','mumbai','delhi','new delhi','hyderabad','chennai','pune','kolkata','ahmedabad','jaipur','indore','kochi','noida','gurgaon','gurugram','lucknow','chandigarh','coimbatore']],
+  ['Canada',['canada','toronto','vancouver','montreal','ottawa','calgary']],['Australia',['australia','sydney','melbourne','brisbane','perth']],
+  ['Netherlands',['netherlands','amsterdam','rotterdam','utrecht']],['France',['france','paris','lyon','marseille']],
+  ['Spain',['spain','madrid','barcelona','valencia']],['Ireland',['ireland','dublin']],['Italy',['italy','rome','milan']],
+  ['Singapore',['singapore']],['Sweden',['sweden','stockholm']],['Denmark',['denmark','copenhagen']],
+  ['Norway',['norway','oslo']],['Poland',['poland','warsaw','krakow']],['Portugal',['portugal','lisbon','porto']],
+  ['Belgium',['belgium','brussels']],['Austria',['austria','vienna']],['Switzerland',['switzerland','zurich','geneva']],
+  ['European Union',['european union','eu']],['Europe',['europe']],['Worldwide',['worldwide','anywhere','global']]
+];
+const countryTermAliases={'united states':['usa','us'],'united kingdom':['uk','britain','england'],'european union':['eu']};
+const locationNoiseWords = /\b(?:remote|hybrid|onsite|on-site|in-office|jobs?|roles?|positions?|work|opportunities|opening|openings|for|with|that|paying|salary|experience|years?|yrs?)\b/i;
+function cleanLocationTerm(value) {
+  return String(value||'').replace(/^\s*(?:remote\s+)?(?:in|near|around)\s+/i,'').replace(/^remote\s+/i,'').trim().replace(/[.!?]+$/,'');
+}
+function splitLocationTerms(value) {
+  return String(value||'').split(/[,;|/]|\s+(?:or|and)\s+/i).map(cleanLocationTerm).filter(Boolean);
+}
+function queryLocationTerms(query) {
+  const q=` ${normalizedLocation(query)} `;
+  const recognized=locationAliases.flatMap(([,aliases])=>aliases.filter(alias=>q.includes(` ${normalizedLocation(alias)} `)));
+  const match=String(query||'').match(/\b(?:in|near|around|based\s+in|located\s+in)\s+(.+?)(?=\s+\b(?:remote|hybrid|onsite|on-site|english|german|french|spanish|hindi|junior|senior|for|with|jobs?|roles?|positions?|experience|years?)\b|[,;.!?]|$)/i);
+  let explicit=[];
+  if(match){const candidate=cleanLocationTerm(match[1]);if(candidate&&!locationNoiseWords.test(candidate)&&!/\b(?:software|data|product|backend|front[- ]?end|engineering|analytics|design|marketing|finance|machine learning|ai|cybersecurity|developer|engineer|analyst)\b/i.test(candidate))explicit=splitLocationTerms(candidate);}
+  return [...new Set([...explicit,...recognized])];
+}
+function profileLocationTerms() {
+  const preferred=splitLocationTerms(state.profile.interestedLocation||'');
+  const current=splitLocationTerms(state.profile.location||'');
+  return [...new Set([...preferred,...current])];
+}
+function effectiveLocationTerms(query) {
+  return queryLocationTerms(query).length?queryLocationTerms(query):profileLocationTerms();
+}
+function normalizedLocation(value) { return String(value||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
+function locationMatches(job, terms) {
+  if(!terms?.length)return true;
+  const location=normalizedLocation(job.location), eligible=(job.eligible||[]).map(normalizedLocation);
+  const contains=(text,term)=>Boolean(text&&term&&` ${text} `.includes(` ${term} `));
+  return terms.some((term)=>{
+    const wanted=normalizedLocation(term);
+    if(!wanted)return false;
+    if(contains(location,wanted)||eligible.some((item)=>contains(item,wanted)))return true;
+    const country=locationAliases.find(([,aliases])=>aliases.some((alias)=>normalizedLocation(alias)===wanted))?.[0];
+    if(!country)return false;
+    const normalizedCountry=normalizedLocation(country);
+    const isCountryTerm=wanted===normalizedCountry||(countryTermAliases[normalizedCountry]||[]).some((alias)=>normalizedLocation(alias)===wanted);
+    const europeCountries=['germany','netherlands','france','spain','italy','ireland','sweden','denmark','norway','poland','portugal','belgium','austria'];
+    return eligible.some((item)=>{
+      if(item==='worldwide'&&job.mode==='Remote')return true;
+      if(item===normalizedCountry&&(isCountryTerm||job.mode==='Remote'))return true;
+      if(isCountryTerm&&(normalizedCountry==='european union'||normalizedCountry==='europe')&&item===normalizedCountry)return true;
+      if(!isCountryTerm&&job.mode!=='Remote')return false;
+      return (item==='europe'&&europeCountries.includes(normalizedCountry))||(item==='european union'&&europeCountries.includes(normalizedCountry));
+    });
+  });
+}
+function profileAllowsJob(job, locationTerms) {
   const p=state.profile;
   if(p.workModes?.length && job.mode!=='Flexible' && !p.workModes.includes(job.mode))return false;
-  const preference=String(p.interestedLocation||'').toLowerCase();
-  const countryMap=[['germany',['germany']],['berlin',['germany']],['munich',['germany']],['india',['india']],['netherlands',['netherlands']],['france',['france']],['spain',['spain']],['european union',['european union']],['eu',['european union']]];
-  const allowedCountries=countryMap.filter(([key])=>preference.includes(key)).flatMap(([,countries])=>countries);
-  const eligible=(job.eligible||[]).map((country)=>country.toLowerCase());
-  const europeMatches=eligible.includes('europe')&&allowedCountries.some((country)=>['germany','netherlands','france','spain'].includes(country));
-  const unrestricted=eligible.some((country)=>['worldwide','not specified'].includes(country));
-  if(job.mode==='Remote' && allowedCountries.length && !unrestricted && !europeMatches && !eligible.some((country)=>allowedCountries.includes(country)))return false;
+  if(!locationMatches(job,locationTerms))return false;
   const languages=(String(p.languages||'').match(/English|German|French|Spanish|Hindi|Italian|Dutch/gi)||[]).map((value)=>value.toLowerCase());
   if(languages.length && job.languages?.length && !job.languages.some((language)=>languages.includes(language.toLowerCase())))return false;
   return true;
@@ -135,16 +189,15 @@ function jobsForQuery(query) {
   const activeSearch=liveSearchByChat.get(state.activeChatId);
   const catalog=activeSearch?.query===String(query) && activeSearch.status==='ready' ? activeSearch.jobs : jobs;
   const mode = q.includes('remote') ? 'Remote' : q.includes('hybrid') ? 'Hybrid' : q.includes('onsite') || q.includes('on-site') ? 'Onsite' : null;
-  const locKeys = ['germany','berlin','munich','european union','eu','india','netherlands','france','spain'];
-  const location = locKeys.find((loc) => q.includes(loc));
+  const locations=effectiveLocationTerms(query);
   const language = ['german','english','french','spanish'].find((lang) => q.includes(lang));
-  let tokens = tokensForSearch(query).filter((word) => !['remote','hybrid','onsite','on','site','in','the','and','with','jobs','job','roles','role','years','year','germany','berlin','munich','european','union','eu','english','german','french','spanish','speaking','junior','senior'].includes(word));
+  const locationTokens=new Set(locations.flatMap(tokensForSearch));
+  let tokens = tokensForSearch(query).filter((word) => !locationTokens.has(word) && !['remote','hybrid','onsite','on','site','in','the','and','with','jobs','job','roles','role','years','year','english','german','french','spanish','speaking','junior','senior'].includes(word));
   if (q.includes('junior')) tokens.push('junior');
   if (q.includes('senior')) tokens.push('senior');
   const ranked = catalog.map((job) => {
-    if (!profileAllowsJob(job)) return { job, score:-1 };
+    if (!profileAllowsJob(job,locations)) return { job, score:-1 };
     if (mode && job.mode !== mode) return { job, score:-1 };
-    if (location && !`${job.location} ${job.eligible.join(' ')}`.toLowerCase().includes(location) && !(location === 'eu' && job.eligible.includes('European Union'))) return { job, score:-1 };
     if (language && job.languages?.length && !job.languages.some((value) => value.toLowerCase() === language)) return { job, score:-1 };
     const haystack = `${job.title} ${job.company} ${job.skills.join(' ')} ${job.description}`.toLowerCase();
     const keywordScore = tokens.reduce((score, token) => score + (haystack.includes(token) ? 2 : 0), 0);
@@ -480,7 +533,8 @@ function startLiveSearch(chat, force=false) {
   const entry={chatId:chat.id,query:chat.query,status:'loading',jobs:[],sources:[]};
   liveSearchByChat.set(chat.id,entry);liveSearch=entry;
   if(state.view==='chat')render();
-  fetch(`/api/search-jobs?q=${encodeURIComponent(chat.query)}`)
+  const location=effectiveLocationTerms(chat.query).join(', ');
+  fetch(`/api/search-jobs?q=${encodeURIComponent(chat.query)}&location=${encodeURIComponent(location)}`)
     .then(async(response)=>{const body=await response.json();if(!response.ok)throw new Error(body.error||'Live job search failed.');return body;})
     .then((body)=>{
       if(liveSearchRequestByChat.get(chat.id)!==requestId)return;
@@ -512,10 +566,10 @@ function showSearchEdit() {
 function showMoreFilters() {
   const query=latestQuery();
   const mode=/remote/i.test(query)?'Remote':/hybrid/i.test(query)?'Hybrid':/onsite/i.test(query)?'Onsite':'';
-  const location=['Germany','Berlin','Munich','European Union','India','Netherlands'].find((value)=>query.toLowerCase().includes(value.toLowerCase()))||'';
+  const location=(queryLocationTerms(query).length?queryLocationTerms(query):profileLocationTerms()).join(', ');
   const language=['English','German','French','Spanish'].find((value)=>query.toLowerCase().includes(value.toLowerCase()))||'';
-  openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Search preferences</span><h2>More filters</h2><p class="modal-copy">These apply only to this search. Remote roles are checked against the countries they allow.</p><form id="filters-form"><div class="field" style="margin-top:15px"><label>Work mode</label><select name="mode"><option value="">Any mode</option>${['Remote','Hybrid','Onsite'].map((v)=>`<option ${mode===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="field" style="margin-top:11px"><label>Country or region</label><select name="location"><option value="">Any location</option>${['Germany','Berlin','Munich','European Union','India','Netherlands'].map((v)=>`<option ${location===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="field" style="margin-top:11px"><label>Working language</label><select name="language"><option value="">Any language</option>${['English','German','French','Spanish'].map((v)=>`<option ${language===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button">Apply filters</button></div></form>`);
-  $('#filters-form').addEventListener('submit',(event)=>{event.preventDefault();const values=new FormData(event.currentTarget);const base=tokensForSearch(query).filter((word)=>!['remote','hybrid','onsite','germany','berlin','munich','english','german','french','spanish','european','union'].includes(word)).join(' ');const q=[base,values.get('mode'),values.get('location'),values.get('language')].filter(Boolean).join(' ');closeModal();runSearch(q||'Data jobs');});
+  openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Search preferences</span><h2>More filters</h2><p class="modal-copy">These apply only to this search. Remote roles are checked against the countries they allow.</p><form id="filters-form"><div class="field" style="margin-top:15px"><label>Work mode</label><select name="mode"><option value="">Any mode</option>${['Remote','Hybrid','Onsite'].map((v)=>`<option ${mode===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="field" style="margin-top:11px"><label for="filter-location">City, country or region</label><input id="filter-location" name="location" value="${esc(location)}" placeholder="e.g., Bengaluru, India or London"></div><div class="field" style="margin-top:11px"><label>Working language</label><select name="language"><option value="">Any language</option>${['English','German','French','Spanish'].map((v)=>`<option ${language===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button">Apply filters</button></div></form>`);
+  $('#filters-form').addEventListener('submit',(event)=>{event.preventDefault();const values=new FormData(event.currentTarget);const locationTokens=new Set([...queryLocationTerms(query),...profileLocationTerms()].flatMap(tokensForSearch));const base=tokensForSearch(query).filter((word)=>!locationTokens.has(word)&&!['remote','hybrid','onsite','english','german','french','spanish'].includes(word)).join(' ');const location=String(values.get('location')||'').trim();const q=[base,values.get('mode'),values.get('language'),location?`in ${location}`:''].filter(Boolean).join(' ');closeModal();runSearch(q||'Data jobs');});
 }
 
 function openApply(job) {
