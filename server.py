@@ -1,9 +1,10 @@
-"""Local-only server for the Hireloom MVP demo."""
+"""HTTP server for the Hireloom MVP, runnable locally or on a web host."""
 
 from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import sys
 import threading
@@ -25,8 +26,8 @@ from xml.etree import ElementTree
 
 
 ROOT = Path(__file__).resolve().parent
-HOST = "127.0.0.1"
-PORT = 8765
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8765"))
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_REQUEST_BYTES = MAX_FILE_BYTES + 128 * 1024
 
@@ -928,7 +929,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"Hireloom MVP running at http://{HOST}:{PORT}")
-    print("This demo binds to localhost. Uploaded CVs are parsed in memory and are not saved by the server.")
+    print("Uploaded CVs are parsed in memory and are not saved by the server.")
     try:
         ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
     except KeyboardInterrupt:
