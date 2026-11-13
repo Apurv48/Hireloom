@@ -13,7 +13,7 @@ The server binds to localhost. The app starts on the login screen every time, in
 
 ## Included flows
 
-- Search live public listings from Arbeitnow and Remotive with natural language; results are ranked against the profile in the browser and link to the original listing.
+- Search live public listings from Arbeitnow, Remotive, Jobicy, Himalayas and Remote OK with natural language; results are ranked against the profile in the browser and link to the original listing.
 - Keep prompts and matching responses as ordered turns in the same chat; start a separate chat only with “New search.”
 - Resolve location from an explicit city/country in the chat first; otherwise match the profile's interested locations and current location. Remote listings are checked against their stated country eligibility.
 - Search by voice with selectable English, German, Hindi, or English-Hindi recognition; review and edit the transcript before submitting a search.
@@ -30,13 +30,13 @@ The server binds to localhost. The app starts on the login screen every time, in
 
 ## Demo boundaries
 
-This is a runnable MVP prototype, not a connected production service. Live search uses Arbeitnow's public job API and Remotive's remote-job API. Arbeitnow's feed refreshes at most every 30 minutes per server run; Remotive's first 100 recent roles are cached for six hours to respect its API guidance. Search queries and profile filters are applied locally to the downloaded feeds. Providers receive feed requests from your internet connection, but Hireloom does not send them your CV, profile, or search terms. Coverage is limited to postings available in these feeds. Remotive listings may be delayed and either feed can contain expired postings, so confirm details on the source page. If both feeds are unavailable, Hireloom labels its seeded sample listings as examples.
+This is a runnable MVP prototype, not a connected production service. Live search uses five public feeds: Arbeitnow, Remotive, Jobicy, Himalayas and Remote OK. Jobicy, Himalayas and Remote OK add remote listings with worldwide or country-specific eligibility, so the remote search is not limited to Europe or Germany. These sources do not provide a complete worldwide index of onsite and hybrid roles; those remain limited to listings available in the other feeds. Feeds are cached locally for 30 minutes (Arbeitnow), six hours (Remotive and Remote OK), four hours (Jobicy), and 24 hours (Himalayas). Search queries and profile filters are applied locally to downloaded feeds. Providers receive feed requests from your internet connection, but Hireloom does not send them your CV, profile, or search terms. Listings may be delayed or expire, so confirm availability and eligibility on each source page. If no live feed is available, Hireloom labels its seeded sample listings as examples.
 
 Voice transcription uses the browser's speech-recognition service when available. The selected language affects recognition, while common German, Hindi, and Hinglish job-search terms are normalized locally. The browser or its speech provider may process audio; Hireloom does not save voice recordings. Search starts only after the user reviews the transcript and presses Search. Type search remains available in browsers without speech recognition.
 
 Local demo credentials use a salted PBKDF2 hash in browser storage and have no email verification or recovery. Match scores are deterministic heuristics; CV parsing is a local rules-based draft. Native applications and external handoffs are recorded in the local tracker only and are never sent to employers. Auto-apply remains off and is not implemented. Scanned PDFs are not OCR processed.
 
-Feed documentation: [Arbeitnow API](https://www.arbeitnow.com/blog/job-board-api) · [Arbeitnow terms](https://www.arbeitnow.com/terms/) · [Remotive API](https://github.com/remotive-com/remote-jobs-api).
+Feed documentation: [Arbeitnow API](https://www.arbeitnow.com/blog/job-board-api) · [Arbeitnow terms](https://www.arbeitnow.com/terms/) · [Remotive API](https://github.com/remotive-com/remote-jobs-api) · [Jobicy API](https://jobicy.com/jobs-rss-feed) · [Himalayas API](https://himalayas.app/docs/remote-jobs-api) · [Remote OK API](https://remoteok.com/faq).
 
 No package manager or frontend build step is required.
 
