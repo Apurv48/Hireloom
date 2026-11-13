@@ -282,7 +282,8 @@ def query_location_terms(query: str) -> list[str]:
     explicit: list[str] = []
     if match:
         candidate = match.group(1).strip()
-        if candidate and not LOCATION_NOISE.search(candidate) and not NON_LOCATION_SEARCH.search(candidate):
+        refers_to_profile = re.fullmatch(r"(?:me|here|my\s+(?:current\s+)?location|my\s+area|where\s+i\s+am)", candidate, re.I)
+        if candidate and not refers_to_profile and not LOCATION_NOISE.search(candidate) and not NON_LOCATION_SEARCH.search(candidate):
             explicit = split_location_terms(candidate)
     return list(dict.fromkeys([*explicit, *recognized]))
 
