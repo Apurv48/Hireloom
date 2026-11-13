@@ -9,7 +9,13 @@ A local-first, interactive prototype of the candidate job-search loop from the s
 3. Open PowerShell in this folder and run `.\run.ps1` (or `python .\server.py`).
 4. Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
 
-The server binds to localhost. The app starts on the login screen every time, including after logout. Sign-up and password login are local demo features: a random salt and PBKDF2 password hash are stored in this browser; no account server, email verification, or password recovery is connected. Profile, conversations, saved jobs, and applications are also stored in this browser. CVs are parsed in memory by the local server and are not written to disk. Use `http://127.0.0.1:8765` so browser cryptography is available.
+When run locally, the server binds to localhost. The app starts on the login screen every time, including after logout. Sign-up and password login are local demo features: a random salt and PBKDF2 password hash are stored in this browser; no account server, email verification, or password recovery is connected. Profile, conversations, saved jobs, and applications are also stored in this browser. CV files are uploaded to the Hireloom server for in-memory parsing and are not retained by the app. Use `http://127.0.0.1:8765` locally so browser cryptography is available.
+
+## Deploy to Render
+
+The repository includes a Render Blueprint (`render.yaml`) for a Python web service. Connect the GitHub repository in Render and create a Blueprint from it. The free service plan avoids a hosting charge, but Render may spin the service down after 15 minutes without traffic, so the first request after idle can take longer. The free plan is intended for previewing and hobby projects, not production use.
+
+Hireloom keeps the demo account, profile, chats and tracker in each user's browser; it has no server-side account database or password recovery. A CV uploaded to a hosted version leaves the user's device and is sent to the Hireloom server for in-memory parsing; it is not retained by the app. Do not upload confidential applicant data or use this MVP for real hiring until it has production authentication, security and privacy reviews.
 
 ## Included flows
 
@@ -30,7 +36,7 @@ The server binds to localhost. The app starts on the login screen every time, in
 
 ## Demo boundaries
 
-This is a runnable MVP prototype, not a connected production service. Live search uses five public feeds: Arbeitnow, Remotive, Jobicy, Himalayas and Remote OK. Jobicy, Himalayas and Remote OK add remote listings with worldwide or country-specific eligibility, so the remote search is not limited to Europe or Germany. These sources do not provide a complete worldwide index of onsite and hybrid roles; those remain limited to listings available in the other feeds. Feeds are cached locally for 30 minutes (Arbeitnow), six hours (Remotive and Remote OK), four hours (Jobicy), and 24 hours (Himalayas). Search queries and profile filters are applied locally to downloaded feeds. Providers receive feed requests from your internet connection, but Hireloom does not send them your CV, profile, or search terms. Listings may be delayed or expire, so confirm availability and eligibility on each source page. If no live feed is available, Hireloom labels its seeded sample listings as examples.
+This is a runnable MVP prototype, not a production hiring service. Live search uses five public feeds: Arbeitnow, Remotive, Jobicy, Himalayas and Remote OK. Jobicy, Himalayas and Remote OK add remote listings with worldwide or country-specific eligibility, so the remote search is not limited to Europe or Germany. These sources do not provide a complete worldwide index of onsite and hybrid roles; those remain limited to listings available in the other feeds. Feeds are cached in server memory for 30 minutes (Arbeitnow), six hours (Remotive and Remote OK), four hours (Jobicy), and 24 hours (Himalayas). A hosted search phrase and location are sent to the Hireloom server for matching; the server downloads public feeds without forwarding the CV, profile or search phrase to the job providers. Listings may be delayed or expire, so confirm availability and eligibility on each source page. If no live feed is available, Hireloom labels its seeded sample listings as examples.
 
 Voice transcription uses the browser's speech-recognition service when available. The selected language affects recognition, while common German, Hindi, and Hinglish job-search terms are normalized locally. The browser or its speech provider may process audio; Hireloom does not save voice recordings. Search starts only after the user reviews the transcript and presses Search. Type search remains available in browsers without speech recognition.
 
