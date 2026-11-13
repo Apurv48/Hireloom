@@ -321,6 +321,11 @@ h3 { margin-bottom: 6px; font-size: 15px; }
 .draft-row small { color: #73778a; font-size: 9px; line-height: 1.5; word-break: break-word; }
 .draft-edit { display: grid; flex: 1; gap: 6px; min-width: 0; }
 .draft-edit input, .draft-edit textarea { width: 100%; border: 1px solid var(--line-strong); border-radius: 6px; padding: 7px 8px; color: #43475b; background: white; font-size: 10px; line-height: 1.45; resize: vertical; }
+.draft-edit select { width: 100%; border: 1px solid var(--line-strong); border-radius: 6px; padding: 7px 8px; color: #43475b; background: white; font-size: 10px; }
+.cv-mode-options { display: flex; flex-wrap: wrap; gap: 10px; color: #55596d; font-size: 10px; }
+.cv-mode-options label { display: inline-flex; align-items: center; gap: 4px; }
+.cv-experience-entry { display: grid; gap: 6px; padding: 9px; border: 1px solid var(--line); border-radius: 7px; background: white; }
+.cv-experience-entry > strong { color: #73778a; font-size: 9px; }
 .cv-warning { margin: 10px 0 0; color: #8b6330; font-size: 10px; line-height: 1.5; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .modal-close { float: right; border: 0; color: #85889a; background: transparent; font-size: 18px; }
