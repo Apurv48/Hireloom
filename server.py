@@ -8,6 +8,7 @@ import re
 import sys
 import threading
 import time
+import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape
@@ -125,7 +126,11 @@ COUNTRIES = [
 
 def eligibility_for(location: str, remote: bool) -> list[str]:
     lowered = location.lower()
+    normalized = normalize_location(location)
     found = [country for country in COUNTRIES if country.lower() in lowered]
+    for country, aliases in LOCATION_ALIASES.items():
+        if country in COUNTRIES and any(f" {normalize_location(alias)} " in f" {normalized} " for alias in aliases):
+            found.append(country)
     if "europe" in lowered:
         found.append("Europe")
     if "worldwide" in lowered or "anywhere" in lowered or "global" in lowered:
@@ -227,29 +232,108 @@ def job_search_tokens(query: str) -> list[str]:
         "job", "jobs", "role", "roles", "position", "positions", "work", "looking", "find", "search",
         "remote", "hybrid", "onsite", "on", "site", "flexible", "junior", "senior", "mid", "level",
         "year", "years", "yr", "yrs", "experience", "experienced", "speaking", "fluent", "english", "german",
-        "french", "spanish", "india", "germany", "berlin", "munich", "netherlands", "france", "spain", "europe",
-        "european", "union", "eu", "united", "kingdom", "uk", "usa", "us", "canada", "worldwide", "anywhere",
+        "french", "spanish", "worldwide", "anywhere",
     }
     return [token for token in re.findall(r"[a-z][a-z0-9+#.-]*", query.lower()) if token not in stop and not re.fullmatch(r"\d+\+?", token)][:12]
 
 
-def filter_live_jobs(jobs: list[dict[str, object]], query: str) -> list[dict[str, object]]:
+LOCATION_ALIASES = {
+    "United States": ["united states", "usa", "us", "new york", "san francisco", "los angeles", "seattle", "austin", "boston", "chicago", "denver", "atlanta", "portland"],
+    "United Kingdom": ["united kingdom", "uk", "britain", "england", "london", "manchester", "edinburgh", "birmingham", "bristol", "glasgow"],
+    "Germany": ["germany", "berlin", "munich", "münchen", "hamburg", "frankfurt", "cologne", "köln", "stuttgart", "dusseldorf", "düsseldorf"],
+    "India": ["india", "bengaluru", "bangalore", "mumbai", "delhi", "new delhi", "hyderabad", "chennai", "pune", "kolkata", "ahmedabad", "jaipur", "indore", "kochi", "noida", "gurgaon", "gurugram", "lucknow", "chandigarh", "coimbatore"],
+    "Canada": ["canada", "toronto", "vancouver", "montreal", "ottawa", "calgary"],
+    "Australia": ["australia", "sydney", "melbourne", "brisbane", "perth"],
+    "Netherlands": ["netherlands", "amsterdam", "rotterdam", "utrecht"],
+    "France": ["france", "paris", "lyon", "marseille"],
+    "Spain": ["spain", "madrid", "barcelona", "valencia"],
+    "Ireland": ["ireland", "dublin"], "Italy": ["italy", "rome", "milan"],
+    "Singapore": ["singapore"], "Sweden": ["sweden", "stockholm"],
+    "Denmark": ["denmark", "copenhagen"], "Norway": ["norway", "oslo"],
+    "Poland": ["poland", "warsaw", "krakow"], "Portugal": ["portugal", "lisbon", "porto"],
+    "Belgium": ["belgium", "brussels"], "Austria": ["austria", "vienna"],
+    "Switzerland": ["switzerland", "zurich", "geneva"],
+    "European Union": ["european union", "eu"], "Europe": ["europe"],
+    "Worldwide": ["worldwide", "anywhere", "global"],
+}
+COUNTRY_TERM_ALIASES = {
+    "united states": {"usa", "us"}, "united kingdom": {"uk", "britain", "england"},
+    "european union": {"eu"},
+}
+LOCATION_NOISE = re.compile(r"\b(?:remote|hybrid|onsite|on-site|in-office|jobs?|roles?|positions?|work|opportunities|openings?|for|with|that|paying|salary|experience|years?|yrs?)\b", re.I)
+NON_LOCATION_SEARCH = re.compile(r"\b(?:software|data|product|backend|front[- ]?end|engineering|analytics|design|marketing|finance|machine learning|ai|cybersecurity|developer|engineer|analyst)\b", re.I)
+EUROPE_COUNTRIES = {"germany", "netherlands", "france", "spain", "italy", "ireland", "sweden", "denmark", "norway", "poland", "portugal", "belgium", "austria"}
+
+
+def normalize_location(value: object) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "").lower())
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", normalized.encode("ascii", "ignore").decode("ascii")).split())
+
+
+def split_location_terms(value: str) -> list[str]:
+    terms = re.split(r",|;|\||/|\s+(?:or|and)\s+", value, flags=re.I)
+    return [re.sub(r"^\s*(?:remote\s+)?(?:in|near|around)\s+|^\s*remote\s+", "", term, flags=re.I).strip(" .!?\t") for term in terms if term.strip(" .!?\t")]
+
+
+def query_location_terms(query: str) -> list[str]:
+    lowered = normalize_location(query)
+    recognized = [alias for aliases in LOCATION_ALIASES.values() for alias in aliases if re.search(r"(?<!\w)" + re.escape(normalize_location(alias)) + r"(?!\w)", lowered)]
+    match = re.search(r"\b(?:in|near|around|based\s+in|located\s+in)\s+(.+?)(?=\s+\b(?:remote|hybrid|onsite|on-site|english|german|french|spanish|hindi|junior|senior|for|with|jobs?|roles?|positions?|experience|years?)\b|[,;.!?]|$)", query, re.I)
+    explicit: list[str] = []
+    if match:
+        candidate = match.group(1).strip()
+        if candidate and not LOCATION_NOISE.search(candidate) and not NON_LOCATION_SEARCH.search(candidate):
+            explicit = split_location_terms(candidate)
+    return list(dict.fromkeys([*explicit, *recognized]))
+
+
+def location_matches(job: dict[str, object], terms: list[str]) -> bool:
+    if not terms:
+        return True
+    job_location = normalize_location(job.get("location", ""))
+    eligible = [normalize_location(value) for value in job.get("eligible", []) if str(value).strip()]
+    mode = str(job.get("mode", ""))
+    contains = lambda text, term: bool(text and term and f" {term} " in f" {text} ")
+    for term in terms:
+        wanted = normalize_location(term)
+        if not wanted:
+            continue
+        if contains(job_location, wanted) or any(contains(item, wanted) for item in eligible):
+            return True
+        country = next((name for name, aliases in LOCATION_ALIASES.items() if any(normalize_location(alias) == wanted for alias in aliases)), "")
+        if not country:
+            continue
+        normalized_country = normalize_location(country)
+        # City aliases can match country eligibility for remote jobs. For office roles,
+        # keep city-level searches tied to the actual listing location.
+        is_country_term = wanted == normalized_country or wanted in COUNTRY_TERM_ALIASES.get(normalized_country, set())
+        if mode == "Remote" and any(normalize_location(alias) == wanted for alias in LOCATION_ALIASES[country]):
+            if any(item in {normalized_country, "worldwide"} for item in eligible):
+                return True
+            if "europe" in eligible and normalized_country in EUROPE_COUNTRIES:
+                return True
+            if "european union" in eligible and normalized_country in EUROPE_COUNTRIES:
+                return True
+        if is_country_term and any(item == normalized_country for item in eligible):
+            return True
+        if is_country_term and (("europe" in eligible and normalized_country in EUROPE_COUNTRIES) or ("european union" in eligible and normalized_country in EUROPE_COUNTRIES)):
+            return True
+    return False
+
+
+def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: str = "") -> list[dict[str, object]]:
     lowered = query.lower()
-    tokens = job_search_tokens(query)
+    locations = query_location_terms(query) or split_location_terms(location_hint)
+    location_tokens = {token for term in locations for token in re.findall(r"[a-z][a-z0-9+#.-]*", term.lower())}
+    tokens = [token for token in job_search_tokens(query) if token not in location_tokens]
     mode = "Remote" if re.search(r"\bremote\b", lowered) else "Hybrid" if re.search(r"\bhybrid\b", lowered) else "Onsite" if re.search(r"\b(on[- ]?site|in[- ]office)\b", lowered) else ""
-    location = next((item for item in ["Berlin", "Munich", "Germany", "Netherlands", "France", "Spain", "India", "United Kingdom", "Canada", "United States", "Europe"] if item.lower() in lowered), "")
     ranked: list[tuple[int, int, dict[str, object]]] = []
     for job in jobs:
         if mode and job.get("mode") != mode:
             continue
         searchable = " ".join(str(job.get(key, "")) for key in ("title", "company", "location", "description", "skills")).lower()
-        if location:
-            eligible = " ".join(str(value) for value in job.get("eligible", []))
-            if location.lower() not in f"{job.get('location', '')} {eligible}".lower():
-                if location == "Germany" and "europe" in eligible.lower():
-                    pass
-                else:
-                    continue
+        if not location_matches(job, locations):
+            continue
         score = sum(2 if token in str(job.get("title", "")).lower() else 1 for token in tokens if token in searchable)
         if tokens and score == 0:
             continue
@@ -262,7 +346,7 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str) -> list[dict[str
     return [job for _, _, job in ranked[:60]]
 
 
-def search_live_jobs(query: str) -> dict[str, object]:
+def search_live_jobs(query: str, location_hint: str = "") -> dict[str, object]:
     from concurrent.futures import ThreadPoolExecutor
     providers = [("arbeitnow", load_arbeitnow, "Arbeitnow"), ("remotive", load_remotive, "Remotive")]
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -275,7 +359,7 @@ def search_live_jobs(query: str) -> dict[str, object]:
         sources.append({"name": name, "ok": bool(items) or not error, "count": len(items), "cached": from_cache, "error": error})
         all_jobs.extend(items)
     unique = {str(job["id"]): job for job in all_jobs}
-    return {"jobs": filter_live_jobs(list(unique.values()), query), "sources": sources}
+    return {"jobs": filter_live_jobs(list(unique.values()), query, location_hint), "sources": sources}
 
 
 def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:
@@ -417,8 +501,9 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlsplit(self.path)
         if parsed.path == "/api/search-jobs":
             query = parse_qs(parsed.query).get("q", [""])[0][:240]
+            location_hint = parse_qs(parsed.query).get("location", [""])[0][:180]
             try:
-                self.send_json(200, search_live_jobs(query))
+                self.send_json(200, search_live_jobs(query, location_hint))
             except Exception:
                 self.send_json(502, {"error": "The live job feeds could not be searched right now."})
             return
