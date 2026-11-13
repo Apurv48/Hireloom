@@ -14,6 +14,7 @@ The server binds to localhost. The app starts on the login screen every time, in
 ## Included flows
 
 - Search live public listings from Arbeitnow and Remotive with natural language; results are ranked against the profile in the browser and link to the original listing.
+- Search by voice with selectable English, German, Hindi, or English-Hindi recognition; review and edit the transcript before submitting a search.
 - Filter the downloaded listings by work mode, location, skills, and profile preferences without sending the CV or profile to job sites.
 - Create a local demo account and log in with a password; passwords are hashed before browser storage.
 - Edit a candidate profile and preferences; add and remove skills.
@@ -27,6 +28,8 @@ The server binds to localhost. The app starts on the login screen every time, in
 ## Demo boundaries
 
 This is a runnable MVP prototype, not a connected production service. Live search uses Arbeitnow's public job API and Remotive's remote-job API. Arbeitnow's feed refreshes at most every 30 minutes per server run; Remotive's first 100 recent roles are cached for six hours to respect its API guidance. Search queries and profile filters are applied locally to the downloaded feeds. Providers receive feed requests from your internet connection, but Hireloom does not send them your CV, profile, or search terms. Coverage is limited to postings available in these feeds. Remotive listings may be delayed and either feed can contain expired postings, so confirm details on the source page. If both feeds are unavailable, Hireloom labels its seeded sample listings as examples.
+
+Voice transcription uses the browser's speech-recognition service when available. The selected language affects recognition, while common German, Hindi, and Hinglish job-search terms are normalized locally. The browser or its speech provider may process audio; Hireloom does not save voice recordings. Search starts only after the user reviews the transcript and presses Search. Type search remains available in browsers without speech recognition.
 
 Local demo credentials use a salted PBKDF2 hash in browser storage and have no email verification or recovery. Match scores are deterministic heuristics; CV parsing is a local rules-based draft. Native applications and external handoffs are recorded in the local tracker only and are never sent to employers. Auto-apply remains off and is not implemented. Scanned PDFs are not OCR processed.
 
