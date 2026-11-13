@@ -120,6 +120,21 @@ const locationAliases = [
   ['Singapore',['singapore']],['Sweden',['sweden','stockholm']],['Denmark',['denmark','copenhagen']],
   ['Norway',['norway','oslo']],['Poland',['poland','warsaw','krakow']],['Portugal',['portugal','lisbon','porto']],
   ['Belgium',['belgium','brussels']],['Austria',['austria','vienna']],['Switzerland',['switzerland','zurich','geneva']],
+  ['United Arab Emirates',['united arab emirates','uae','dubai','abu dhabi']],['Argentina',['argentina','buenos aires']],['Brazil',['brazil','sao paulo','são paulo','rio de janeiro']],
+  ['Bangladesh',['bangladesh','dhaka']],['Bahrain',['bahrain','manama']],['Bulgaria',['bulgaria','sofia']],['China',['china','beijing','shanghai','shenzhen','guangzhou']],
+  ['Colombia',['colombia','bogota','bogotá','medellin']],['Costa Rica',['costa rica','san jose','san josé']],['Czechia',['czechia','czech republic','prague']],
+  ['Egypt',['egypt','cairo']],['Finland',['finland','helsinki']],['Ghana',['ghana','accra']],['Greece',['greece','athens']],['Hong Kong',['hong kong']],
+  ['Hungary',['hungary','budapest']],['Indonesia',['indonesia','jakarta']],['Israel',['israel','tel aviv','jerusalem']],['Japan',['japan','tokyo','osaka','kyoto']],
+  ['Kenya',['kenya','nairobi']],['South Korea',['south korea','korea','seoul']],['Kuwait',['kuwait','kuwait city']],['Sri Lanka',['sri lanka','colombo']],
+  ['Lithuania',['lithuania','vilnius']],['Luxembourg',['luxembourg','luxembourg city']],['Latvia',['latvia','riga']],['Morocco',['morocco','casablanca','rabat']],
+  ['Mexico',['mexico','mexico city','guadalajara']],['Malaysia',['malaysia','kuala lumpur']],['Nigeria',['nigeria','lagos','abuja']],['Nepal',['nepal','kathmandu']],
+  ['New Zealand',['new zealand','auckland','wellington']],['Oman',['oman','muscat']],['Peru',['peru','lima']],['Philippines',['philippines','manila']],
+  ['Pakistan',['pakistan','karachi','lahore','islamabad']],['Qatar',['qatar','doha']],['Romania',['romania','bucharest']],['Russia',['russia','moscow']],
+  ['Saudi Arabia',['saudi arabia','riyadh','jeddah']],['South Africa',['south africa','cape town','johannesburg','durban']],['Slovenia',['slovenia','ljubljana']],
+  ['Slovakia',['slovakia','bratislava']],['Thailand',['thailand','bangkok']],['Tunisia',['tunisia','tunis']],['Türkiye',['türkiye','turkey','istanbul','ankara']],
+  ['Taiwan',['taiwan','taipei']],['Ukraine',['ukraine','kyiv','kiev']],['Chile',['chile','santiago']],['Ecuador',['ecuador','quito']],['Estonia',['estonia','tallinn']],
+  ['Croatia',['croatia','zagreb']],['Iceland',['iceland','reykjavik']],['Iraq',['iraq','baghdad']],['Uruguay',['uruguay','montevideo']],
+  ['Venezuela',['venezuela','caracas']],['Vietnam',['vietnam','hanoi','ho chi minh city','saigon']],['Zambia',['zambia','lusaka']],['Zimbabwe',['zimbabwe','harare']],
   ['European Union',['european union','eu']],['Europe',['europe']],['Worldwide',['worldwide','anywhere','global']]
 ];
 const countryTermAliases={'united states':['usa','us'],'united kingdom':['uk','britain','england'],'european union':['eu']};
