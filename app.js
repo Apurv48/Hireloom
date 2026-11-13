@@ -154,6 +154,7 @@ function locationMatches(job, terms) {
   return terms.some((term)=>{
     const wanted=normalizedLocation(term);
     if(!wanted)return false;
+    if(job.mode==='Remote'&&eligible.includes('worldwide'))return true;
     if(contains(location,wanted)||eligible.some((item)=>contains(item,wanted)))return true;
     const country=locationAliases.find(([,aliases])=>aliases.some((alias)=>normalizedLocation(alias)===wanted))?.[0];
     if(!country)return false;
@@ -387,7 +388,7 @@ function renderSettings() {
   if (state.settingsTab==='notifications') body=`<h3>Notifications</h3><div class="setting-row"><div class="setting-row-copy"><strong>New matches</strong><small>Get a reminder when new roles fit your preferences.</small></div><button class="switch ${state.settings.newMatches?'on':''}" data-action="toggle-setting" data-setting="newMatches" aria-label="Toggle new matches"></button></div><div class="setting-row"><div class="setting-row-copy"><strong>Application reminders</strong><small>Remind me to update an external application status.</small></div><button class="switch ${state.settings.reminders?'on':''}" data-action="toggle-setting" data-setting="reminders" aria-label="Toggle application reminders"></button></div><div class="setting-row"><div class="setting-row-copy"><strong>Automatic applications</strong><small>Not implemented in this demo. It remains off.</small></div><button class="switch" disabled aria-label="Automatic applications off"></button></div>`;
   if (state.settingsTab==='privacy') body=`<h3>Privacy</h3><div class="setting-row"><div class="setting-row-copy"><strong>Export my data</strong><small>Download your profile, saved roles and tracker as JSON.</small></div><button class="secondary-button" data-action="export-data">Export data</button></div><div class="setting-row"><div class="setting-row-copy"><strong>Delete local demo data</strong><small>Remove saved profile, chats, CV filename and applications from this browser.</small></div><button class="danger-button" data-action="delete-data">Delete data</button></div><div class="setting-row"><div class="setting-row-copy"><strong>CV handling</strong><small>Uploaded CVs are parsed by the local demo server and are not retained there.</small></div><span class="tag green">Local processing</span></div>`;
   if (state.settingsTab==='language') body=`<h3>Language</h3><div class="setting-row"><div class="setting-row-copy"><strong>Interface language</strong><small>Choose the language used in Hireloom.</small></div><select class="settings-select" disabled><option>English</option></select></div>`;
-  if (state.settingsTab==='help') body=`<h3>Help and terms</h3><div class="setting-row"><div class="setting-row-copy"><strong>About this MVP</strong><small>Live listings come from Arbeitnow and Remotive. Match scores use local heuristics, and sample listings appear only when the live feeds are unavailable.</small></div><span class="tag">Demo</span></div><div class="setting-row"><div class="setting-row-copy"><strong>Human review</strong><small>You review your profile, CV edits and application status. Authorization and salary answers are never generated.</small></div></div>`;
+  if (state.settingsTab==='help') body=`<h3>Help and terms</h3><div class="setting-row"><div class="setting-row-copy"><strong>About this MVP</strong><small>Live listings come from Arbeitnow, Remotive, Jobicy, Himalayas and Remote OK. Global remote listings are matched to your profile or the location in your chat; match scores use local heuristics.</small></div><span class="tag">Demo</span></div><div class="setting-row"><div class="setting-row-copy"><strong>Human review</strong><small>You review your profile, CV edits and application status. Authorization and salary answers are never generated.</small></div></div>`;
   return `<div class="page-head"><div class="page-head-copy"><span class="eyebrow">Account controls</span><h1>Settings</h1><p class="subhead">Manage notifications, privacy and your local demo account.</p></div></div><div class="settings-layout"><nav class="card settings-nav">${tabs.map(([id,label])=>`<button class="${state.settingsTab===id?'active':''}" data-settings-tab="${id}">${label}</button>`).join('')}</nav><section class="card settings-content">${body}</section></div>`;
 }
 
@@ -576,7 +577,7 @@ function startLiveSearch(chat,force=false,turnId=null) {
     })
     .catch(()=>{
       if(liveSearchRequestByTurn.get(turn.id)!==requestId)return;
-      entry.status='error';entry.jobs=[];entry.sources=[{name:'Arbeitnow',ok:false},{name:'Remotive',ok:false}];
+      entry.status='error';entry.jobs=[];entry.sources=['Arbeitnow','Remotive','Jobicy','Himalayas','Remote OK'].map((name)=>({name,ok:false}));
       turn.status='error';turn.resultsCaptured=true;turn.jobs=[];turn.sources=entry.sources;turn.totalResults=0;turn.response='I couldn’t reach the live job feeds for this prompt. You can retry it.';
       liveSearchByTurn.set(turn.id,entry);persist();
       if(state.activeChatId===chat.id){liveSearch=entry;if(state.view==='chat')render();}
