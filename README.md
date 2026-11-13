@@ -14,6 +14,7 @@ The server binds to localhost. The app starts on the login screen every time, in
 ## Included flows
 
 - Search live public listings from Arbeitnow and Remotive with natural language; results are ranked against the profile in the browser and link to the original listing.
+- Keep prompts and matching responses as ordered turns in the same chat; start a separate chat only with “New search.”
 - Resolve location from an explicit city/country in the chat first; otherwise match the profile's interested locations and current location. Remote listings are checked against their stated country eligibility.
 - Search by voice with selectable English, German, Hindi, or English-Hindi recognition; review and edit the transcript before submitting a search.
 - Filter the downloaded listings by work mode, location, skills, and profile preferences without sending the CV or profile to job sites.
