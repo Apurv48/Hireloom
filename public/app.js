@@ -5,6 +5,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = (value = '') => String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const toList = (value) => String(value || '').split(',').map((part) => part.trim()).filter(Boolean);
+const cloud = window.HireloomCloud || { enabled: false };
 
 const jobs = [
   { id:'python', title:'Senior Python Developer', company:'Northstar Labs', location:'Berlin, Germany', mode:'Remote', eligible:['Germany','European Union'], languages:['English'], source:'Native', route:'Apply on Hireloom', posted:'2 days ago', years:'3+ years', match:86, skills:['Python','SQL','REST APIs','AWS'], description:'Build reliable Python services and data integrations with a distributed product team. Work from Germany with a remote-first group across Europe.', highlights:['Own backend services and API integrations','Partner with product and data teams','Improve observability and deployment workflows'], reason:'Your Python and SQL background maps closely to the core stack. The role is remote from Germany and uses English day to day.' },
@@ -47,8 +48,9 @@ function initialState() {
 }
 
 function loadState() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
+  try { return normalizeState(JSON.parse(localStorage.getItem(STORAGE_KEY))); } catch { return initialState(); }
+}
+function normalizeState(parsed) {
     if (!parsed || !parsed.profile || !Array.isArray(parsed.chats)) return initialState();
     const chats=parsed.chats.map((stored)=>{
       const chat=stored.id==='seed-remote'&&stored.query==='Remote Python jobs in Germany, English, 2+ years experience'?{...stored,title:'Remote Python jobs',query:'Remote Python jobs, English, 2+ years experience'}:stored;
@@ -57,10 +59,10 @@ function loadState() {
       return {...chat,turns,query:latest?.query||chat.query||'',hasSearch:turns.length>0};
     });
     return { ...initialState(), ...parsed, chats, view:'login', loggedOut:true, profile:{ ...defaultProfile(), ...parsed.profile }, settings:{ ...initialState().settings, ...(parsed.settings || {}) } };
-  } catch { return initialState(); }
 }
 let state = loadState();
 let session=false;
+let pendingCvFile=null;
 function loadAuth() {
   try {
     const value=JSON.parse(localStorage.getItem(AUTH_KEY));
@@ -99,9 +101,10 @@ function sameHash(a,b) {
 function persist() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch { toast('Could not save this change in your browser storage.', 'error'); }
+  if (cloud.enabled && session) cloud.queuePush(syncSnapshot);
 }
 function getChat() { return state.chats.find((chat) => chat.id === state.activeChatId) || state.chats[0]; }
-function getJob(id) { return jobs.find((job) => job.id === id) || liveSearch.jobs.find((job) => job.id === id) || [...liveSearchByTurn.values()].flatMap((search) => search.jobs || []).find((job) => job.id === id) || state.chats.flatMap((chat)=>chat.turns||[]).flatMap((turn)=>turn.jobs||[]).find((job)=>job.id===id); }
+function getJob(id) { return jobs.find((job) => job.id === id) || liveSearch.jobs.find((job) => job.id === id) || [...liveSearchByTurn.values()].flatMap((search) => search.jobs || []).find((job) => job.id === id) || state.chats.flatMap((chat)=>chat.turns||[]).flatMap((turn)=>turn.jobs||[]).find((job)=>job.id===id) || (state.pinnedJobs||[]).find((job)=>job.id===id); }
 function normalizeSkill(skill) {
   const aliases = { js:'JavaScript', javascript:'JavaScript', 'data pipelines':'Data pipelines', 'rest apis':'REST APIs', api:'APIs', 'machine learning':'Machine learning', ml:'Machine learning', 'product analytics':'Product analytics' };
   return aliases[String(skill).trim().toLowerCase()] || String(skill).trim();
@@ -276,11 +279,11 @@ function renderView() {
 }
 
 function renderLogin() {
-  return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Your next role, on your terms</span><h1>Welcome back</h1><p class="subhead">Log in to your Hireloom workspace.</p>${authMessage?`<p class="auth-message">${esc(authMessage)}</p>`:''}<form id="login-form" class="login-form"><div class="field"><label for="login-email">Email</label><input id="login-email" name="email" type="email" value="${esc(authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><div class="field"><label for="login-password">Password</label><div class="password-input"><input id="login-password" name="password" type="password" autocomplete="current-password" required /><button type="button" data-action="toggle-password" data-id="login-password">Show</button></div></div><button class="primary-button login-submit">Log in</button></form><p class="login-switch">New to Hireloom? <button class="text-button" data-action="show-signup">Create an account</button></p><p class="login-note"><strong>Local demo account:</strong> your email and salted password hash stay in this browser. No data is sent to an auth service.</p></div><p class="logged-out-note">Your profile and tracker remain saved in this browser between sessions.</p></section>`;
+  return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Your next role, on your terms</span><h1>Welcome back</h1><p class="subhead">Log in to your Hireloom workspace.</p>${authMessage?`<p class="auth-message${authMessage.startsWith('✓')?' info':''}">${esc(authMessage)}</p>`:''}<form id="login-form" class="login-form"><div class="field"><label for="login-email">Email</label><input id="login-email" name="email" type="email" value="${esc(authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><div class="field"><label for="login-password">Password</label><div class="password-input"><input id="login-password" name="password" type="password" autocomplete="current-password" required /><button type="button" data-action="toggle-password" data-id="login-password">Show</button></div></div><button class="primary-button login-submit">Log in</button></form><p class="login-switch">New to Hireloom? <button class="text-button" data-action="show-signup">Create an account</button></p>${cloud.enabled?'<p class="login-note"><strong>Your Hireloom account:</strong> log in on any device to pick up where you left off.</p></div><p class="logged-out-note">Your profile, searches and latest CV are saved privately to your account.</p>':'<p class="login-note"><strong>Local demo account:</strong> your email and salted password hash stay in this browser. No data is sent to an auth service.</p></div><p class="logged-out-note">Your profile and tracker remain saved in this browser between sessions.</p>'}</section>`;
 }
 
 function renderSignup() {
-  return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Start your search</span><h1>Create your account</h1><p class="subhead">Set up a local Hireloom demo account.</p>${authMessage?`<p class="auth-message">${esc(authMessage)}</p>`:''}<form id="signup-form" class="login-form"><div class="field"><label for="signup-name">Full name</label><input id="signup-name" name="name" value="${esc(authDraft.name)}" autocomplete="name" required /></div><div class="field"><label for="signup-email">Email</label><input id="signup-email" name="email" type="email" value="${esc(authDraft.email||authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><div class="field"><label for="signup-password">Password</label><div class="password-input"><input id="signup-password" name="password" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-password">Show</button></div><small>Use at least 8 characters.</small></div><div class="field"><label for="signup-confirm">Confirm password</label><div class="password-input"><input id="signup-confirm" name="confirm" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-confirm">Show</button></div></div><label class="consent-row"><input type="checkbox" name="localConsent" required /> <span>I understand this demo saves my profile and a password hash in this browser.</span></label><button class="primary-button login-submit">Create account</button></form><p class="login-switch">Already have an account? <button class="text-button" data-action="show-login">Log in</button></p><p class="login-note">This creates a local demo account only. There is no email verification or account recovery.</p></div></section>`;
+  return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Start your search</span><h1>Create your account</h1><p class="subhead">${cloud.enabled?'Create your Hireloom account.':'Set up a local Hireloom demo account.'}</p>${authMessage?`<p class="auth-message${authMessage.startsWith('✓')?' info':''}">${esc(authMessage)}</p>`:''}<form id="signup-form" class="login-form"><div class="field"><label for="signup-name">Full name</label><input id="signup-name" name="name" value="${esc(authDraft.name)}" autocomplete="name" required /></div><div class="field"><label for="signup-email">Email</label><input id="signup-email" name="email" type="email" value="${esc(authDraft.email||authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><div class="field"><label for="signup-password">Password</label><div class="password-input"><input id="signup-password" name="password" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-password">Show</button></div><small>Use at least 8 characters.</small></div><div class="field"><label for="signup-confirm">Confirm password</label><div class="password-input"><input id="signup-confirm" name="confirm" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-confirm">Show</button></div></div><label class="consent-row"><input type="checkbox" name="localConsent" required /> <span>${cloud.enabled?'I agree that Hireloom stores my profile, searches and CV in my account so I can use them on any device.':'I understand this demo saves my profile and a password hash in this browser.'}</span></label><button class="primary-button login-submit">Create account</button></form><p class="login-switch">Already have an account? <button class="text-button" data-action="show-login">Log in</button></p><p class="login-note">${cloud.enabled?'You may need to confirm your email address before logging in. Password reset is not available yet, so keep your password safe.':'This creates a local demo account only. There is no email verification or account recovery.'}</p></div></section>`;
 }
 
 function renderJobCard(job,scoreOverride) {
@@ -329,7 +332,7 @@ function renderChat() {
     <div class="composer-wrap"><div class="filters-row">${(filters.length?filters:['Work mode','Location','Language']).map((filter)=>`<button class="filter-pill" data-action="filter-chip" data-filter="${esc(filter)}">${esc(filter)}${filter==='Work mode'||filter==='Location'||filter==='Language'?' ▾':''}</button>`).join('')}<button class="filter-pill" data-action="more-filters">＋ More filters</button><label class="voice-language-control"><span>Voice</span><select id="voice-language" aria-label="Voice search language">${voiceLanguageOptions.map(([value,label])=>`<option value="${value}" ${voiceLanguage===value?'selected':''}>${esc(label)}</option>`).join('')}</select></label></div>
       ${renderVoicePanel()}
       <form class="composer" id="search-form"><input id="search-query" name="query" value="${esc(voiceState.status==='review'?voiceState.queryDraft:voiceState.baseQuery||'')}" aria-label="Describe the job you want" placeholder="Ask a follow-up or search another role" autocomplete="off" /><button class="secondary-button voice-button ${voiceState.status==='listening'?'is-listening':''}" type="button" data-action="voice-search" aria-label="${voiceState.status==='listening'?'Listening; tap to stop':'Start voice search'}" aria-pressed="${voiceState.status==='listening'}">◉ <span>${voiceState.status==='listening'?'Listening':'Speak'}</span></button><button class="primary-button" type="submit">Send <span>↗</span></button></form>
-      <p class="assistant-caption">Search text and location are sent to Hireloom for matching, but not to job providers. Profile data is not sent to job providers. Uploaded CVs are sent to the Hireloom server for in-memory parsing and are not retained. Your browser may use its speech service to transcribe voice; Hireloom does not save audio.</p>
+      <p class="assistant-caption">Search text and location are sent to Hireloom for matching, but not to job providers. Profile data is not sent to job providers. ${cloud.enabled?'Your latest CV is parsed in memory and then stored privately in your account.':'Uploaded CVs are sent to the Hireloom server for in-memory parsing and are not retained.'} Your browser may use its speech service to transcribe voice; Hireloom does not save audio.</p>
     </div>
   </section></div>`;
 }
@@ -361,12 +364,12 @@ function renderProfile() {
   <div class="profile-tabs">${tabs.map(([id,label])=>`<button class="profile-tab ${tab===id?'active':''}" data-profile-tab="${id}">${label}</button>`).join('')}</div>
   <form id="profile-form">
   ${tab==='about'?`<div class="profile-panels"><section class="card section-card"><div class="section-title"><h3>About you</h3><span class="tag green">Profile confirmed</span></div><div class="profile-form-grid"><div class="field"><label for="p-name">Full name</label><input id="p-name" name="name" value="${esc(p.name)}" required /></div><div class="field"><label for="p-gender">Gender <span class="muted">· optional</span></label><select id="p-gender" name="gender"><option value="">Not specified</option>${['Woman','Man','Non-binary','Self describe','Prefer not to say'].map((value)=>`<option ${p.gender===value?'selected':''}>${value}</option>`).join('')}</select></div><div class="field"><label for="p-dob">Date of birth <span class="muted">· optional</span></label><input id="p-dob" name="dob" type="date" value="${esc(p.dob)}" /></div><div class="field"><label for="p-email">Email</label><input id="p-email" name="email" type="email" value="${esc(p.email)}" required /><small>Demo account email</small></div><div class="field"><label for="p-phone">Phone number</label><input id="p-phone" name="phone" value="${esc(p.phone)}" /></div><div class="field"><label for="p-location">Current location</label><input id="p-location" name="location" value="${esc(p.location)}" /></div><div class="field span-2"><label for="p-summary">Profile summary</label><textarea id="p-summary" name="summary">${esc(p.summary)}</textarea><small>Use facts you can support from your experience.</small></div></div></section>
-  <section class="card section-card"><div class="section-title"><h3>Your CV</h3><span class="tag">Processed by Hireloom server</span></div><div class="file-card"><div class="file-card-copy"><span class="file-icon">CV</span><span><strong id="cv-file-name">${esc(cvDraft?.fileName || p.cvName || 'No CV uploaded yet')}</strong><small>PDF or DOCX · up to 4 MB</small></span></div><label class="secondary-button" for="cv-upload" style="cursor:pointer">${p.cvName?'Replace':'Upload CV'}</label></div><input id="cv-upload" type="file" accept=".pdf,.docx" hidden /><div class="file-status" id="cv-status">${esc(cvDraft?'Review the extracted draft before saving.':p.cvStatus || 'Add a CV to create a confirmed profile.')}</div>${cvDraft?'<button type="button" class="text-button" data-action="review-cv-draft">Review extracted details</button>':''}<p class="upload-note">The CV is uploaded to Hireloom for in-memory parsing and is discarded after processing. Only the filename and details you confirm are saved in this browser.</p><div class="confidence-note">Your profile is the source of truth. Review parsed details before using them in matching or a tailored CV.</div></section></div>`
+  <section class="card section-card"><div class="section-title"><h3>Your CV</h3><span class="tag">${cloud.enabled?'Stored in your account':'Processed by Hireloom server'}</span></div><div class="file-card"><div class="file-card-copy"><span class="file-icon">CV</span><span><strong id="cv-file-name">${esc(cvDraft?.fileName || p.cvName || 'No CV uploaded yet')}</strong><small>PDF or DOCX · up to 1 MB</small></span></div><label class="secondary-button" for="cv-upload" style="cursor:pointer">${p.cvName?'Replace':'Upload CV'}</label></div><input id="cv-upload" type="file" accept=".pdf,.docx" hidden /><div class="file-status" id="cv-status">${esc(cvDraft?'Review the extracted draft before saving.':p.cvStatus || 'Add a CV to create a confirmed profile.')}</div>${cvDraft?'<button type="button" class="text-button" data-action="review-cv-draft">Review extracted details</button>':''}${cloud.enabled&&p.cvPath?'<button type="button" class="text-button" data-action="download-stored-cv">Download stored CV</button>':''}<p class="upload-note">${cloud.enabled?'The CV is parsed in memory, then your latest copy is stored privately in your account so you can download it from any device. Uploading a new CV replaces it.':'The CV is uploaded to Hireloom for in-memory parsing and is discarded after processing. Only the filename and details you confirm are saved in this browser.'}</p><div class="confidence-note">Your profile is the source of truth. Review parsed details before using them in matching or a tailored CV.</div></section></div>`
   :tab==='career'?`<div class="profile-panels"><section class="card section-card"><div class="section-title"><h3>Career</h3><span class="muted small">Edit what matches your CV</span></div><div class="form-section"><h4>Education</h4><div class="field"><label for="p-education">Degree, focus and dates</label><input id="p-education" name="education" value="${esc(p.education)}" /></div></div><div class="form-section"><h4>Experience</h4>${experienceRows}<p class="upload-note">Confirm experience details against your CV before tailoring it.</p></div><div class="form-section"><h4>Skills and evidence</h4><div class="skill-list" id="skill-list">${p.skills.map((skill,index)=>`<button class="removable-tag" type="button" data-action="remove-skill" data-index="${index}">${esc(skill)} <span>×</span></button>`).join('')}</div><div class="inline-add"><input id="new-skill" placeholder="Add a skill you can evidence" /><button class="secondary-button" type="button" data-action="add-skill">＋ Add</button></div><div class="profile-form-grid" style="margin-top:12px"><div class="field"><label for="p-achievements">Achievements <span class="muted">· comma separated</span></label><textarea id="p-achievements" name="achievements">${esc((p.achievements||[]).join(', '))}</textarea></div><div class="field"><label for="p-certifications">Certifications <span class="muted">· comma separated</span></label><textarea id="p-certifications" name="certifications">${esc((p.certifications||[]).join(', '))}</textarea></div></div><small class="upload-note">Only skills you confirm here are used as matches. A tailored CV never adds a gap as a skill.</small></div></section>
   <section class="card section-card"><div class="section-title"><h3>Roles to explore</h3></div><div class="field"><label for="p-title">Current / target role</label><input id="p-title" name="title" value="${esc(p.title)}" /></div><div class="field" style="margin-top:12px"><label for="p-roles">Interested roles <span class="muted">· comma separated</span></label><textarea id="p-roles" name="roles">${esc(p.roles.join(', '))}</textarea></div><div class="field" style="margin-top:12px"><label for="p-languages">Languages and proficiency</label><input id="p-languages" name="languages" value="${esc(p.languages)}" /><small>Example: English (Fluent), German (Intermediate)</small></div><div class="confidence-note">Low confidence? Check dates and role descriptions against your CV before applying.</div></section></div>`
   :`<div class="profile-panels"><section class="card section-card"><div class="section-title"><h3>Job preferences</h3></div><div class="field"><label for="p-locations">Interested locations</label><input id="p-locations" name="interestedLocation" value="${esc(p.interestedLocation)}" /><small>Countries where you can work remotely are considered too.</small></div><div class="form-section" style="margin-top:16px"><h4>Work mode</h4><div class="checkbox-row">${['Onsite','Remote','Hybrid'].map((mode)=>`<label class="choice-chip"><input type="checkbox" name="workModes" value="${mode}" ${p.workModes.includes(mode)?'checked':''}/> ${mode}</label>`).join('')}</div></div><div class="field"><label for="p-scope">Search scope</label><select id="p-scope" name="scope">${['National','International','Both'].map((value)=>`<option ${p.scope===value?'selected':''}>${value}</option>`).join('')}</select></div><div class="field" style="margin-top:12px"><label for="p-relocation">Relocation preferences</label><input id="p-relocation" name="relocation" value="${esc(p.relocation)}" /></div></section>
   <section class="card section-card"><div class="section-title"><h3>Compensation</h3><span class="muted small">Optional</span></div><div class="field"><label for="p-salary">Expected salary</label><input id="p-salary" name="salary" value="${esc(p.salary)}" placeholder="e.g. 70,000 EUR / year" /></div><div class="field" style="margin-top:12px"><label for="p-current-salary">Current salary</label><input id="p-current-salary" name="currentSalary" value="${esc(p.currentSalary)}" /></div><div class="confidence-note">Authorization, salary and notice period are never filled in automatically.</div></section></div>`}
-  <div class="profile-actions"><span class="saved-label hidden" id="profile-saved">Saved in this browser</span><button class="primary-button" type="submit">Save profile</button></div></form>`;
+  <div class="profile-actions"><span class="saved-label hidden" id="profile-saved">${cloud.enabled?'Saved to your account':'Saved in this browser'}</span><button class="primary-button" type="submit">Save profile</button></div></form>`;
 }
 
 function tailorContent(job) {
@@ -402,9 +405,9 @@ function renderSettings() {
   const tabs = [['account','Account'],['notifications','Notifications'],['privacy','Privacy'],['language','Language'],['help','Help and terms']];
   const p=state.profile;
   let body='';
-  if (state.settingsTab==='account') body=`<h3>Account</h3><div class="setting-row"><div class="setting-row-copy"><strong>Email and phone number</strong><small>${esc(p.email)} · ${esc(p.phone)}</small></div><button class="text-button" data-action="open-profile">Edit profile ›</button></div><div class="setting-row"><div class="setting-row-copy"><strong>Demo workspace</strong><small>Your profile, chats and tracker are saved in this browser.</small></div><span class="tag">Local</span></div>`;
+  if (state.settingsTab==='account') body=`<h3>Account</h3><div class="setting-row"><div class="setting-row-copy"><strong>Email and phone number</strong><small>${esc(p.email)} · ${esc(p.phone)}</small></div><button class="text-button" data-action="open-profile">Edit profile ›</button></div><div class="setting-row"><div class="setting-row-copy"><strong>${cloud.enabled?'Your workspace':'Demo workspace'}</strong><small>${cloud.enabled?'Your profile, chats, tracker and CV are saved to your Hireloom account.':'Your profile, chats and tracker are saved in this browser.'}</small></div><span class="tag">${cloud.enabled?'Cloud':'Local'}</span></div>`;
   if (state.settingsTab==='notifications') body=`<h3>Notifications</h3><div class="setting-row"><div class="setting-row-copy"><strong>New matches</strong><small>Get a reminder when new roles fit your preferences.</small></div><button class="switch ${state.settings.newMatches?'on':''}" data-action="toggle-setting" data-setting="newMatches" aria-label="Toggle new matches"></button></div><div class="setting-row"><div class="setting-row-copy"><strong>Application reminders</strong><small>Remind me to update an external application status.</small></div><button class="switch ${state.settings.reminders?'on':''}" data-action="toggle-setting" data-setting="reminders" aria-label="Toggle application reminders"></button></div><div class="setting-row"><div class="setting-row-copy"><strong>Automatic applications</strong><small>Not implemented in this demo. It remains off.</small></div><button class="switch" disabled aria-label="Automatic applications off"></button></div>`;
-  if (state.settingsTab==='privacy') body=`<h3>Privacy</h3><div class="setting-row"><div class="setting-row-copy"><strong>Export my data</strong><small>Download your profile, saved roles and tracker as JSON.</small></div><button class="secondary-button" data-action="export-data">Export data</button></div><div class="setting-row"><div class="setting-row-copy"><strong>Delete local demo data</strong><small>Remove saved profile, chats, CV filename and applications from this browser.</small></div><button class="danger-button" data-action="delete-data">Delete data</button></div><div class="setting-row"><div class="setting-row-copy"><strong>CV handling</strong><small>Uploaded CVs are sent to the Hireloom server, parsed in memory and not retained by the app.</small></div><span class="tag green">In-memory processing</span></div>`;
+  if (state.settingsTab==='privacy') body=`<h3>Privacy</h3><div class="setting-row"><div class="setting-row-copy"><strong>Export my data</strong><small>Download your profile, saved roles and tracker as JSON.</small></div><button class="secondary-button" data-action="export-data">Export data</button></div><div class="setting-row"><div class="setting-row-copy"><strong>${cloud.enabled?'Delete my account':'Delete local demo data'}</strong><small>${cloud.enabled?'Permanently remove your login, profile, chats, tracker and stored CV.':'Remove saved profile, chats, CV filename and applications from this browser.'}</small></div><button class="danger-button" data-action="delete-data">${cloud.enabled?'Delete account':'Delete data'}</button></div><div class="setting-row"><div class="setting-row-copy"><strong>CV handling</strong><small>${cloud.enabled?'Your latest CV (PDF or DOCX, up to 1 MB) is parsed in memory, then stored privately in your account. Uploading a new CV replaces it.':'Uploaded CVs are sent to the Hireloom server, parsed in memory and not retained by the app.'}</small></div><span class="tag green">${cloud.enabled?'Private storage':'In-memory processing'}</span></div>`;
   if (state.settingsTab==='language') body=`<h3>Language</h3><div class="setting-row"><div class="setting-row-copy"><strong>Interface language</strong><small>Choose the language used in Hireloom.</small></div><select class="settings-select" disabled><option>English</option></select></div>`;
   if (state.settingsTab==='help') body=`<h3>Help and terms</h3><div class="setting-row"><div class="setting-row-copy"><strong>About this MVP</strong><small>Live listings come from Arbeitnow, Remotive, Jobicy, Himalayas and Remote OK. Global remote listings are matched to your profile or the location in your chat; match scores use local heuristics.</small></div><span class="tag">Demo</span></div><div class="setting-row"><div class="setting-row-copy"><strong>Human review</strong><small>You review your profile, CV edits and application status. Authorization and salary answers are never generated.</small></div></div>`;
   return `<div class="page-head"><div class="page-head-copy"><span class="eyebrow">Account controls</span><h1>Settings</h1><p class="subhead">Manage notifications, privacy and your local demo account.</p></div></div><div class="settings-layout"><nav class="card settings-nav">${tabs.map(([id,label])=>`<button class="${state.settingsTab===id?'active':''}" data-settings-tab="${id}">${label}</button>`).join('')}</nav><section class="card settings-content">${body}</section></div>`;
@@ -518,6 +521,7 @@ function finishLogin(account) {
   authData.lastEmail=account.email;saveAuth();state.profile.email=account.email;state.loggedOut=false;state.view='chat';persist();session=true;authMode='login';authMessage='';if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Welcome to your Hireloom workspace.','success');
 }
 async function loginUser(formData) {
+  if(cloud.enabled)return cloudLogin(formData);
   const email=normalizeEmail(formData.get('email')), password=String(formData.get('password')||'');
   authData.lastEmail=email;saveAuth();
   const account=authData.accounts.find(value=>value.email===email);
@@ -529,6 +533,7 @@ async function loginUser(formData) {
   } catch(error) { authMessage=error.message||'Could not verify this password in the current browser.';render(); }
 }
 async function createAccount(formData) {
+  if(cloud.enabled)return cloudSignup(formData);
   const name=String(formData.get('name')||'').trim(),email=normalizeEmail(formData.get('email'));
   const password=String(formData.get('password')||''),confirm=String(formData.get('confirm')||'');
   authDraft={name,email};
@@ -542,6 +547,89 @@ async function createAccount(formData) {
     authData.accounts.push(account);authData.lastEmail=email;saveAuth();
     state.profile.name=name;state.profile.email=email;state.loggedOut=false;state.view='chat';persist();session=true;authMode='login';authMessage='';if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Local demo account created.','success');
   } catch(error) { authMessage=error.message||'Could not create the local account.';render(); }
+}
+
+// ---- Cloud accounts (Supabase). Only used when public/config.js is filled in. ----
+if(cloud.enabled)cloud.onSyncError=()=>toast('Could not save your latest changes to your account. Check your connection; they will sync on your next change.','error');
+function syncSnapshot() {
+  // Search results are large and fetched live, so they are not synced; each search re-runs on the next device.
+  const wanted=new Set([...state.savedJobs,...state.applications.map((app)=>app.jobId),...state.cvVersions.map((version)=>version.jobId)]);
+  const pinnedJobs=[...wanted].map((id)=>getJob(id)).filter(Boolean);
+  const {pendingCvDraft,sidebarOpen,...rest}=state;
+  return {...rest,pinnedJobs,chats:state.chats.map((chat)=>({...chat,turns:(chat.turns||[]).map((turn)=>({...turn,jobs:[],sources:[],response:'',status:'unloaded',resultsCaptured:false,totalResults:0}))}))};
+}
+function resetSearchCaches() {
+  liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};
+}
+async function enterCloudWorkspace(user,fallbackName='') {
+  let remote=null;
+  try { remote=await cloud.pull(); }
+  catch(error) { await cloud.signOut();authMessage='You are signed in, but your saved workspace could not be loaded ('+(error.message||'network error')+'). Please log in again.';render();return; }
+  // Replace whatever this browser held, so two accounts never mix on a shared device.
+  try { state=remote?normalizeState(remote):initialState(); } catch { state=initialState(); }
+  const name=user.name||fallbackName;
+  if(!remote&&name)state.profile.name=name;
+  state.profile.email=user.email;state.loggedOut=false;state.view='chat';
+  resetSearchCaches();
+  session=true;authMode='login';authMessage='';authData.lastEmail=user.email;saveAuth();
+  persist();
+  if(getChat()?.hasSearch)startChatSearches(getChat());else render();
+  toast('Welcome to your Hireloom workspace.','success');
+}
+async function cloudLogin(formData) {
+  const email=normalizeEmail(formData.get('email')),password=String(formData.get('password')||'');
+  authData.lastEmail=email;saveAuth();
+  const button=$('.login-submit');if(button){button.disabled=true;button.textContent='Logging in…';}
+  const result=await cloud.signIn(email,password);
+  if(result.error){authMessage=result.error;render();return;}
+  await enterCloudWorkspace(result.user);
+}
+async function cloudSignup(formData) {
+  const name=String(formData.get('name')||'').trim(),email=normalizeEmail(formData.get('email'));
+  const password=String(formData.get('password')||''),confirm=String(formData.get('confirm')||'');
+  authDraft={name,email};
+  if(!formData.get('localConsent')){authMessage='Confirm that you agree to Hireloom storing your profile, searches and CV in your account.';render();return;}
+  if(password.length<8){authMessage='Use a password with at least 8 characters.';render();return;}
+  if(password!==confirm){authMessage='The passwords do not match.';render();return;}
+  const button=$('.login-submit');if(button){button.disabled=true;button.textContent='Creating account…';}
+  const result=await cloud.signUp(email,password,name);
+  if(result.error){authMessage=result.error;render();return;}
+  authData.lastEmail=email;saveAuth();
+  if(!result.signedIn){authMode='login';authMessage='✓ Account created. Check your email to confirm your address, then log in.';render();return;}
+  await enterCloudWorkspace(result.user,name);
+}
+async function cloudLogout() {
+  cancelVoiceSearch(false);
+  try{await cloud.flush();}catch{}
+  await cloud.signOut();
+  session=false;
+  try{localStorage.removeItem(STORAGE_KEY);}catch{}
+  state=initialState();resetSearchCaches();authMode='login';authMessage='';
+  closeModal();render();
+}
+async function cloudDeleteAccount() {
+  closeModal();toast('Deleting your account…');
+  try{await cloud.deleteAccount();}
+  catch(error){toast('Could not delete your account: '+(error.message||'try again'),'error');return;}
+  cancelVoiceSearch(false);session=false;
+  try{localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(AUTH_KEY);}catch{}
+  state=initialState();authData={accounts:[],lastEmail:''};resetSearchCaches();authMode='login';authMessage='✓ Your account and data were deleted.';
+  render();
+}
+async function storeCvFile(file) {
+  try {
+    const path=await cloud.uploadCv(file);
+    state.profile.cvPath=path;state.profile.cvStoredAt=new Date().toISOString();persist();
+    if(state.view==='profile')render();
+    toast('CV saved to your account.','success');
+  } catch(error) { toast('Profile updated, but the CV file could not be saved: '+(error.message||'try again'),'error'); }
+}
+async function downloadStoredCv() {
+  const p=state.profile;if(!p.cvPath)return;
+  try {
+    const url=await cloud.signedCvUrl(p.cvPath,p.cvName||'cv');
+    const link=document.createElement('a');link.href=url;link.rel='noopener';link.click();
+  } catch(error) { toast('Could not download your CV: '+(error.message||'try again'),'error'); }
 }
 
 function runSearch(query) {
@@ -670,17 +758,17 @@ function saveProfile(formData) {
   if(formData.has('certifications'))p.certifications=toList(formData.get('certifications'));
   if(formData.has('experienceCount')){const count=Math.min(20,Math.max(0,Number(formData.get('experienceCount'))||0));p.experience=Array.from({length:count},(_,index)=>({title:String(formData.get(`experienceTitle${index}`)||'').trim(),company:String(formData.get(`experienceCompany${index}`)||'').trim(),dates:String(formData.get(`experienceDates${index}`)||'').trim(),detail:String(formData.get(`experienceDetail${index}`)||'').trim()})).filter((experience)=>Object.values(experience).some(Boolean));}
   if($('#profile-form input[name="workModes"]'))p.workModes=formData.getAll('workModes');
-  persist();render();const saved=$('#profile-saved');if(saved)saved.classList.remove('hidden');toast('Profile saved in this browser.','success');
+  persist();render();const saved=$('#profile-saved');if(saved)saved.classList.remove('hidden');toast(cloud.enabled?'Profile saved to your account.':'Profile saved in this browser.','success');
 }
 function handleUpload(file) {
   if(!file)return;
-  if(file.size>4*1024*1024){toast('That file is over the 4 MB limit.','error');return;}
+  if(file.size>1*1024*1024){toast('That file is over the 1 MB limit.','error');return;}
   const ext=file.name.split('.').pop().toLowerCase();
   if(!['pdf','docx'].includes(ext)){toast('Choose a PDF or DOCX CV.','error');return;}
   $('#cv-file-name').textContent=file.name;$('#cv-status').textContent='Uploading your CV for in-memory parsing…';
   const form=new FormData();form.append('file',file);
   fetch('/api/parse-cv',{method:'POST',body:form}).then(async(response)=>{const body=await response.json();if(!response.ok)throw new Error(body.error||'CV parsing failed.');return body;}).then((draft)=>{
-    state.pendingCvDraft={fileName:file.name,draft};
+    state.pendingCvDraft={fileName:file.name,draft};pendingCvFile=file;
     render();showCvDraftReview();
   }).catch((error)=>{ $('#cv-status').textContent=`${file.name} · ${error.message}`;toast(error.message,'error'); });
 }
@@ -738,7 +826,7 @@ function showCvDraftReview() {
       const count=Math.min(20,Math.max(0,Number(form.get('experience-count'))||0));
       p.experience=Array.from({length:count},(_,index)=>({title:String(form.get(`experience-title-${index}`)||'').trim(),company:String(form.get(`experience-company-${index}`)||'').trim(),dates:String(form.get(`experience-dates-${index}`)||'').trim(),detail:String(form.get(`experience-detail-${index}`)||'').trim()})).filter((experience)=>Object.values(experience).some(Boolean));
     }
-    p.cvName=state.pendingCvDraft.fileName;p.cvStatus=`Parsed by Hireloom · ${draft.pageCount?`${draft.pageCount} pages · `:''}profile updated`;state.pendingCvDraft=null;persist();closeModal();render();toast('Your profile was updated from the CV.','success');
+    p.cvName=state.pendingCvDraft.fileName;p.cvStatus=`Parsed by Hireloom · ${draft.pageCount?`${draft.pageCount} pages · `:''}profile updated`;const cvFile=pendingCvFile;pendingCvFile=null;state.pendingCvDraft=null;persist();closeModal();render();toast('Your profile was updated from the CV.','success');if(cloud.enabled&&cvFile)storeCvFile(cvFile);
   });
 }
 function setView(view) { cancelVoiceSearch(false);state.view=view;state.sidebarOpen=false;persist();render();window.scrollTo({top:0,behavior:'smooth'}); }
@@ -801,6 +889,7 @@ document.addEventListener('click',(event)=>{
     }
     case 'approve-tailored':{const job=getJob(state.tailoringJobId),version=(state.profile.cvVersion||1)+state.cvVersions.filter((item)=>item.approved).length,draft=tailorContent(job);state.cvVersions=state.cvVersions.filter((item)=>item.jobId!==job.id);state.cvVersions.push({jobId:job.id,version,approved:true,approvedAt:new Date().toISOString(),summary:draft.summary,bullet:draft.bullet,skills:draft.skills,profile:{name:state.profile.name,email:state.profile.email,phone:state.profile.phone,location:state.profile.location,education:state.profile.education,title:state.profile.title}});persist();state.view='job';state.selectedJobId=job.id;render();toast(`Tailored CV v${version} approved for ${job.title}.`,'success');break;}
     case 'download-cv':downloadApprovedCv(id);break;
+    case 'download-stored-cv':downloadStoredCv();break;
     case 'reject-tailored':state.view='job';render();toast('Draft rejected. Your profile has not changed.');break;
     case 'apply-job':openApply(getJob(id));break;
     case 'submit-application':submitApplication(id);break;
@@ -811,17 +900,17 @@ document.addEventListener('click',(event)=>{
     case 'add-skill':{const input=$('#new-skill'),skill=input?.value.trim();if(!skill){toast('Add a skill name first.');break;}if(!state.profile.skills.some((value)=>value.toLowerCase()===skill.toLowerCase()))state.profile.skills.push(skill);persist();render();toast('Skill added to your profile.','success');break;}
     case 'toggle-setting':state.settings[action.dataset.setting]=!state.settings[action.dataset.setting];persist();render();break;
     case 'export-data':downloadData();break;
-    case 'delete-data':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Privacy</span><h2>Delete local demo data?</h2><p class="modal-copy">This removes your saved profile, conversations, CV filename and tracker entries from this browser. This action cannot be undone.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="danger-button" data-action="confirm-delete">Delete data</button></div>`);break;
-    case 'confirm-delete':cancelVoiceSearch(false);localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(AUTH_KEY);state=initialState();authData={accounts:[],lastEmail:''};liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};authMode='login';authMessage='';session=false;closeModal();render();toast('Local demo data deleted.','success');break;
+    case 'delete-data':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Privacy</span><h2>${cloud.enabled?'Delete your account?':'Delete local demo data?'}</h2><p class="modal-copy">${cloud.enabled?'This permanently deletes your login, profile, conversations, tracker and stored CV from Hireloom. This action cannot be undone.':'This removes your saved profile, conversations, CV filename and tracker entries from this browser. This action cannot be undone.'}</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="danger-button" data-action="confirm-delete">${cloud.enabled?'Delete account':'Delete data'}</button></div>`);break;
+    case 'confirm-delete':if(cloud.enabled){cloudDeleteAccount();break;}cancelVoiceSearch(false);localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(AUTH_KEY);state=initialState();authData={accounts:[],lastEmail:''};liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};authMode='login';authMessage='';session=false;closeModal();render();toast('Local demo data deleted.','success');break;
     case 'reset-demo':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Reset demo</span><h2>Restore the sample workspace?</h2><p class="modal-copy">This resets your local profile, searches and applications to the sample data.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="confirm-reset">Restore demo</button></div>`);break;
     case 'confirm-reset':cancelVoiceSearch(false);state=initialState();liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();toast('Sample workspace restored.','success');break;
-    case 'logout':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Account</span><h2>Log out of Hireloom?</h2><p class="modal-copy">This ends the current demo session. Your local profile and tracker data will remain saved in this browser.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="confirm-logout">Log out</button></div>`);break;
-    case 'confirm-logout':cancelVoiceSearch(false);session=false;state.loggedOut=true;state.view='login';liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();break;
+    case 'logout':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Account</span><h2>Log out of Hireloom?</h2><p class="modal-copy">${cloud.enabled?'Your workspace is saved to your Hireloom account. This device’s copy will be cleared.':'This ends the current demo session. Your local profile and tracker data will remain saved in this browser.'}</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="confirm-logout">Log out</button></div>`);break;
+    case 'confirm-logout':if(cloud.enabled){cloudLogout();break;}cancelVoiceSearch(false);session=false;state.loggedOut=true;state.view='login';liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();break;
     case 'continue-demo':state.loggedOut=false;state.view='chat';persist();if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Returned to your saved demo workspace.','success');break;
     case 'plan-select':toast(`${action.dataset.plan} is a prototype plan. No payment is collected.`);break;
     case 'close-modal':pendingDeleteChatId=null;closeModal();break;
     case 'review-cv-draft':showCvDraftReview();break;
-    case 'discard-cv-draft':state.pendingCvDraft=null;closeModal();render();toast('CV draft discarded.');break;
+    case 'discard-cv-draft':state.pendingCvDraft=null;pendingCvFile=null;closeModal();render();toast('CV draft discarded.');break;
   }
 });
 
@@ -836,5 +925,6 @@ document.addEventListener('click',(event)=>{
 document.addEventListener('keydown',(event)=>{if(event.key==='Escape'){pendingDeleteChatId=null;closeModal();$('#account-menu').classList.add('hidden');state.sidebarOpen=false;updateShell();}});
 
 render();
+if(cloud.enabled)cloud.getUser().then((user)=>{if(user)enterCloudWorkspace(user);}).catch(()=>{});
 
 

@@ -19,9 +19,30 @@ The repository is set up for Vercel (`vercel.json`). Static files live in `publi
 2. Keep the framework preset on **Other**. No build command or environment variables are needed; Vercel installs `requirements.txt` for the functions.
 3. Deploy. Every push to `main` redeploys automatically.
 
-Things to know on Vercel: the job-feed cache lives in each warm function instance, so the first search after a quiet period refetches the feeds and can take a few seconds. CV uploads are capped at 4 MB because Vercel rejects request bodies over 4.4 MB. The Hobby plan is meant for personal, non-commercial projects.
+Things to know on Vercel: the job-feed cache lives in each warm function instance, so the first search after a quiet period refetches the feeds and can take a few seconds. CV uploads are capped at 1 MB (see Accounts and storage). The Hobby plan is meant for personal, non-commercial projects.
 
-Hireloom keeps the demo account, profile, chats and tracker in each user's browser; it has no server-side account database or password recovery. A CV uploaded to a hosted version leaves the user's device and is sent to the Hireloom server for in-memory parsing; it is not retained by the app. Do not upload confidential applicant data or use this MVP for real hiring until it has production authentication, security and privacy reviews.
+In local demo mode Hireloom keeps the demo account, profile, chats and tracker in each user's browser; it has no server-side account database or password recovery, and a CV sent to the server is parsed in memory and not retained. In Supabase mode accounts, workspaces and each user's latest CV are stored in your Supabase project (see below). Either way, do not upload confidential applicant data or use this MVP for real hiring until it has production authentication, security and privacy reviews.
+
+## Accounts and storage (Supabase)
+
+Hireloom can sign users in and keep their workspace on any device using a free [Supabase](https://supabase.com) project. Until you configure it, the app runs in the local demo mode described above.
+
+1. Create a Supabase project (the free plan is enough).
+2. Open **SQL Editor**, paste the contents of `supabase/schema.sql` and run it. It creates the `user_data` table, a private `cvs` storage bucket limited to 1 MB PDF/DOCX files, Row Level Security rules so each user can only read and change their own data, and a `delete_my_account()` function.
+3. Open **Project Settings → API** and copy the project URL and the `anon public` key into `public/config.js`. The anon key is designed to be public; the Row Level Security rules protect the data. Never put the `service_role` key in this repository.
+4. Open **Authentication → URL Configuration** and set the Site URL to your deployed address (and add `http://127.0.0.1:8765` for local testing).
+5. Open **Authentication → Providers → Email**. Supabase's built-in email sender is heavily rate-limited, so for anything beyond testing either turn off "Confirm email" or add your own SMTP provider.
+6. Commit `public/config.js` and redeploy.
+
+What it does:
+
+- **Accounts:** email and password sign-up and login handled by Supabase Auth. Passwords are never stored by Hireloom. Sessions persist on each device and log out only that device.
+- **Workspace sync:** profile, chats, saved jobs, tracker, tailored CVs and settings are saved to one row per user a couple of seconds after each change, and loaded at login. Search results are not synced because they come from live feeds; each search re-runs on the device you open it on. The latest change wins if two devices are edited at once.
+- **CV storage:** after the user confirms a parsed CV, the file is stored privately as `<user id>/cv.pdf` or `cv.docx`. Each user has one stored CV and a new upload replaces it, which keeps storage small. The 1 MB limit is enforced in the browser, in `server.py` and by the bucket itself. Users can download their stored CV from the Profile page. At up to 1 MB per user the free 1 GB of file storage covers at least 1,000 users, and far more with typical CV sizes.
+- **Shared devices:** logging out clears the local copy of the workspace so accounts never mix on one browser.
+- **Delete account:** Settings → Privacy removes the login, workspace row and stored CV.
+
+Known gaps: no password-reset screen yet, no email-change flow, and the Supabase free plan pauses projects after a week without activity and has no automatic backups.
 
 ## Included flows
 
@@ -30,9 +51,9 @@ Hireloom keeps the demo account, profile, chats and tracker in each user's brows
 - Resolve location from an explicit city/country in the chat first; otherwise match the profile's interested locations and current location. Remote listings are checked against their stated country eligibility.
 - Search by voice with selectable English, German, Hindi, or English-Hindi recognition; review and edit the transcript before submitting a search.
 - Filter the downloaded listings by work mode, location, skills, and profile preferences without sending the CV or profile to job sites.
-- Create a local demo account and log in with a password; passwords are hashed before browser storage.
+- Create an account and log in on any device (Supabase mode), or a local demo account whose password hash stays in this browser (default when Supabase is not configured).
 - Edit a candidate profile and preferences; add and remove skills.
-- Upload a text-based PDF or DOCX (up to 4 MB), review every profile field against the CV, including contact details, career history, education, skills, achievements, certifications, languages and any explicitly stated preferences, then choose what to update. Missing CV values stay unchanged.
+- Upload a text-based PDF or DOCX (up to 1 MB), review every profile field against the CV, including contact details, career history, education, skills, achievements, certifications, languages and any explicitly stated preferences, then choose what to update. Missing CV values stay unchanged.
 - Delete individual saved search chats from the sidebar.
 - Review per-job match details, matched skills, gaps, and ATS readiness.
 - Edit, approve, or reject a job-specific CV draft built only from profile content.

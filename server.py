@@ -29,8 +29,9 @@ ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "public"
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8765"))
-# Vercel rejects request bodies over 4.5 MB, so keep uploads comfortably below that.
-MAX_FILE_BYTES = 4 * 1024 * 1024
+# One CV per account is stored in Supabase Storage (free tier: 1 GB), so keep uploads small.
+# This also sits well under Vercel's 4.5 MB request limit. Keep in sync with public/app.js, public/cloud.js and supabase/schema.sql.
+MAX_FILE_BYTES = 1 * 1024 * 1024
 MAX_REQUEST_BYTES = MAX_FILE_BYTES + 128 * 1024
 
 SKILLS = [
@@ -871,7 +872,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         content_length = int(self.headers.get("Content-Length", "0"))
         if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
-            self.send_json(413, {"error": "The CV upload must be 4 MB or smaller."})
+            self.send_json(413, {"error": "The CV upload must be 1 MB or smaller."})
             return
         body = self.rfile.read(content_length)
         content_type = self.headers.get("Content-Type", "")
@@ -885,7 +886,7 @@ class Handler(SimpleHTTPRequestHandler):
         filename = Path(unescape(uploaded.get_filename() or "upload")).name
         payload = uploaded.get_payload(decode=True) or b""
         if len(payload) > MAX_FILE_BYTES:
-            self.send_json(413, {"error": "The CV upload must be 4 MB or smaller."})
+            self.send_json(413, {"error": "The CV upload must be 1 MB or smaller."})
             return
         try:
             result = parse_cv(filename, payload)
