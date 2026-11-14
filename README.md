@@ -6,14 +6,20 @@ A local-first, interactive prototype of the candidate job-search loop from the s
 
 1. Install Python 3.10 or newer.
 2. For PDF parsing, install the optional parser once: `python -m pip install pdfplumber`.
-3. Open PowerShell in this folder and run `.\run.ps1` (or `python .\server.py`).
+3. Open PowerShell in this folder and run `.\run.ps1` (or `python .\server.py`; it serves `public/` and the same API routes).
 4. Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
 
 When run locally, the server binds to localhost. The app starts on the login screen every time, including after logout. Sign-up and password login are local demo features: a random salt and PBKDF2 password hash are stored in this browser; no account server, email verification, or password recovery is connected. Profile, conversations, saved jobs, and applications are also stored in this browser. CV files are uploaded to the Hireloom server for in-memory parsing and are not retained by the app. Use `http://127.0.0.1:8765` locally so browser cryptography is available.
 
-## Deploy to Render
+## Deploy to Vercel
 
-The repository includes a Render Blueprint (`render.yaml`) for a Python web service. Connect the GitHub repository in Render and create a Blueprint from it. The free service plan avoids a hosting charge, but Render may spin the service down after 15 minutes without traffic, so the first request after idle can take longer. The free plan is intended for previewing and hobby projects, not production use.
+The repository is set up for Vercel (`vercel.json`). Static files live in `public/`, and the three API routes (`/api/search-jobs`, `/api/parse-cv`, `/api/render-cv`) are Python serverless functions in `api/` that reuse the logic in `server.py`.
+
+1. In Vercel choose **Add New → Project** and import this GitHub repository.
+2. Keep the framework preset on **Other**. No build command or environment variables are needed; Vercel installs `requirements.txt` for the functions.
+3. Deploy. Every push to `main` redeploys automatically.
+
+Things to know on Vercel: the job-feed cache lives in each warm function instance, so the first search after a quiet period refetches the feeds and can take a few seconds. CV uploads are capped at 4 MB because Vercel rejects request bodies over 4.4 MB. The Hobby plan is meant for personal, non-commercial projects.
 
 Hireloom keeps the demo account, profile, chats and tracker in each user's browser; it has no server-side account database or password recovery. A CV uploaded to a hosted version leaves the user's device and is sent to the Hireloom server for in-memory parsing; it is not retained by the app. Do not upload confidential applicant data or use this MVP for real hiring until it has production authentication, security and privacy reviews.
 
@@ -26,7 +32,7 @@ Hireloom keeps the demo account, profile, chats and tracker in each user's brows
 - Filter the downloaded listings by work mode, location, skills, and profile preferences without sending the CV or profile to job sites.
 - Create a local demo account and log in with a password; passwords are hashed before browser storage.
 - Edit a candidate profile and preferences; add and remove skills.
-- Upload a text-based PDF or DOCX (up to 5 MB), review every profile field against the CV, including contact details, career history, education, skills, achievements, certifications, languages and any explicitly stated preferences, then choose what to update. Missing CV values stay unchanged.
+- Upload a text-based PDF or DOCX (up to 4 MB), review every profile field against the CV, including contact details, career history, education, skills, achievements, certifications, languages and any explicitly stated preferences, then choose what to update. Missing CV values stay unchanged.
 - Delete individual saved search chats from the sidebar.
 - Review per-job match details, matched skills, gaps, and ATS readiness.
 - Edit, approve, or reject a job-specific CV draft built only from profile content.

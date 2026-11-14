@@ -26,9 +26,11 @@ from xml.etree import ElementTree
 
 
 ROOT = Path(__file__).resolve().parent
+STATIC_DIR = ROOT / "public"
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8765"))
-MAX_FILE_BYTES = 5 * 1024 * 1024
+# Vercel rejects request bodies over 4.5 MB, so keep uploads comfortably below that.
+MAX_FILE_BYTES = 4 * 1024 * 1024
 MAX_REQUEST_BYTES = MAX_FILE_BYTES + 128 * 1024
 
 SKILLS = [
@@ -845,7 +847,7 @@ def make_docx(payload: dict[str, object]) -> bytes:
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=str(ROOT), **kwargs)
+        super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
@@ -869,7 +871,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         content_length = int(self.headers.get("Content-Length", "0"))
         if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
-            self.send_json(413, {"error": "The CV upload must be 5 MB or smaller."})
+            self.send_json(413, {"error": "The CV upload must be 4 MB or smaller."})
             return
         body = self.rfile.read(content_length)
         content_type = self.headers.get("Content-Type", "")
@@ -883,7 +885,7 @@ class Handler(SimpleHTTPRequestHandler):
         filename = Path(unescape(uploaded.get_filename() or "upload")).name
         payload = uploaded.get_payload(decode=True) or b""
         if len(payload) > MAX_FILE_BYTES:
-            self.send_json(413, {"error": "The CV upload must be 5 MB or smaller."})
+            self.send_json(413, {"error": "The CV upload must be 4 MB or smaller."})
             return
         try:
             result = parse_cv(filename, payload)
