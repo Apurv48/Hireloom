@@ -55,7 +55,7 @@ The free remote feeds carry few on-site or hybrid jobs outside Germany. For thos
 ## Included flows
 
 - Search live public listings from Arbeitnow, Remotive, Jobicy, Himalayas, Remote OK and (optionally) Adzuna with natural language; results are ranked against the profile in the browser and link to the original listing.
-- Keep prompts and matching responses as ordered turns in the same chat; start a separate chat only with “New search.”
+- Keep prompts and matching responses as ordered turns in the same chat; start a separate chat only with “New search.” Editing a prompt changes that same turn and refreshes its results instead of adding a new prompt; “Refine with a new prompt” is the way to add a follow-up turn.
 - Resolve location from an explicit city/country in the chat first; otherwise match the profile's interested locations and current location. Remote listings are checked against their stated country eligibility.
 - Search by voice with selectable English, German, Hindi, or English-Hindi recognition; review and edit the transcript before submitting a search.
 - Filter the downloaded listings by work mode, location, skills, and profile preferences without sending the CV or profile to job sites.

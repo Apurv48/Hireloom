@@ -727,6 +727,14 @@ function runSearch(query) {
   if(chat.turns.length===1)chat.title=query.length>33?`${query.slice(0,32)}…`:query;
   chat.date='Today';chat.hasSearch=true;state.view='chat';persist();startLiveSearch(chat,false,turn.id);
 }
+// Editing a prompt rewrites that same turn and re-runs its search, so no new prompt or response is added.
+function editPromptInPlace(chat,turn,query) {
+  cancelVoiceSearch(false);
+  turn.query=query;
+  if(chat.turns[0]===turn)chat.title=query.length>33?`${query.slice(0,32)}…`:query;
+  if(chat.turns[chat.turns.length-1]===turn)chat.query=query;
+  startLiveSearch(chat,true,turn.id);
+}
 function copyPromptText(query) {
   if(navigator.clipboard?.writeText)return navigator.clipboard.writeText(query);
   const field=document.createElement('textarea');field.value=query;field.setAttribute('readonly','');field.style.position='fixed';field.style.opacity='0';document.body.append(field);field.select();
@@ -952,7 +960,7 @@ document.addEventListener('click',(event)=>{
     case 'open-plans':setView('plans');break;
     case 'edit-prompt':editingPromptTurnId=action.dataset.turnId;render();$('.prompt-edit-input')?.focus();break;
     case 'cancel-prompt-edit':editingPromptTurnId=null;render();break;
-    case 'save-prompt-edit':{const turn=getChat()?.turns?.find((item)=>item.id===action.dataset.turnId),input=action.closest('.conversation-turn')?.querySelector('.prompt-edit-input'),query=String(input?.value||'').trim();if(!turn||!query||query===turn.query.trim())break;editingPromptTurnId=null;runSearch(query);toast('Edited prompt added to the conversation.','success');break;}
+    case 'save-prompt-edit':{const turn=getChat()?.turns?.find((item)=>item.id===action.dataset.turnId),input=action.closest('.conversation-turn')?.querySelector('.prompt-edit-input'),query=String(input?.value||'').trim();if(!turn||!query||query===turn.query.trim())break;editingPromptTurnId=null;editPromptInPlace(getChat(),turn,query);toast('Prompt updated and results refreshed.','success');break;}
     case 'copy-prompt':{const turn=getChat()?.turns?.find((item)=>item.id===action.dataset.turnId);if(turn)copyPromptText(turn.query).then(()=>toast('Prompt copied.','success')).catch(()=>toast('Could not copy the prompt.','error'));break;}
     case 'rerun-prompt':{const chat=getChat(),turnId=action.dataset.turnId;if(chat?.turns?.some((item)=>item.id===turnId)){startLiveSearch(chat,true,turnId);toast('Prompt search refreshed.','success');}break;}
     case 'edit-search':showSearchEdit();break;
