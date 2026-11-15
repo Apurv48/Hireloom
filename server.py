@@ -48,7 +48,7 @@ FEED_CACHE_LOCKS = {
 }
 FEED_CACHE_TTLS = {
     "arbeitnow": 30 * 60, "remotive": 6 * 60 * 60, "jobicy": 4 * 60 * 60,
-    "himalayas": 24 * 60 * 60, "remoteok": 6 * 60 * 60,
+    "himalayas": 24 * 60 * 60, "remoteok": 6 * 60 * 60, "adzuna": 30 * 60,
 }
 FEED_USER_AGENT = "HireloomMVP/1.0 (local personal job search)"
 
@@ -254,6 +254,24 @@ def normalize_job(record: dict[str, object], provider: str) -> dict[str, object]
         posted, published = posted_label(record.get("date"))
         source_url = "https://remoteok.com/"
         job_id = "remoteok-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
+    elif provider == "Adzuna":
+        title = str(record.get("title") or "").strip()
+        company_info = record.get("company") if isinstance(record.get("company"), dict) else {}
+        company = str(company_info.get("display_name") or "Company not listed").strip()
+        place = record.get("location") if isinstance(record.get("location"), dict) else {}
+        location = str(place.get("display_name") or "Location not listed").strip()
+        country = str(record.get("_country") or "").strip()
+        if country and country.lower() not in location.lower():
+            location = f"{location}, {country}"
+        description = plain_text(record.get("description"))
+        external_url = safe_https_url(record.get("redirect_url"))
+        remote = bool(re.search(r"\bremote\b|work from home", f"{title} {location}", re.I))
+        category = record.get("category") if isinstance(record.get("category"), dict) else {}
+        tags = [category.get("label", ""), record.get("contract_type", ""), record.get("contract_time", "")]
+        slug = str(record.get("id") or external_url or title)
+        posted, published = posted_label(record.get("created"))
+        source_url = "https://www.adzuna.com/"
+        job_id = "adzuna-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
     else:
         return None
     if not title or not external_url:
@@ -329,12 +347,79 @@ def load_remoteok() -> list[dict[str, object]]:
     return [job for record in records if isinstance(record, dict) if (job := normalize_job(record, "Remote OK"))][:500]
 
 
+# Adzuna covers on-site and hybrid roles in India and many other countries. It needs a free key
+# (ADZUNA_APP_ID / ADZUNA_APP_KEY); without one this source is skipped. Search is per country.
+ADZUNA_COUNTRY_CODES = {
+    "India": "in", "United Kingdom": "gb", "United States": "us", "Canada": "ca", "Australia": "au",
+    "New Zealand": "nz", "Singapore": "sg", "South Africa": "za", "Germany": "de", "France": "fr",
+    "Netherlands": "nl", "Italy": "it", "Austria": "at", "Poland": "pl", "Brazil": "br", "Mexico": "mx",
+}
+ADZUNA_DEFAULT_COUNTRIES = ("in", "gb", "us", "ca", "au", "sg", "za")
+ADZUNA_MAX_TARGETS = 8
+
+
+def adzuna_credentials() -> tuple[str, str] | None:
+    app_id = os.environ.get("ADZUNA_APP_ID", "").strip()
+    app_key = os.environ.get("ADZUNA_APP_KEY", "").strip()
+    return (app_id, app_key) if app_id and app_key else None
+
+
+def load_adzuna(code: str, what: str, where: str) -> list[dict[str, object]]:
+    credentials = adzuna_credentials()
+    if not credentials:
+        return []
+    params: dict[str, object] = {
+        "app_id": credentials[0], "app_key": credentials[1], "results_per_page": 50,
+        "max_days_old": 45, "content-type": "application/json",
+    }
+    if what:
+        params["what"] = what
+    if where:
+        params["where"] = where
+    payload = fetch_json(f"https://api.adzuna.com/v1/api/jobs/{code}/search/1?" + urlencode(params))
+    records = payload.get("results") if isinstance(payload.get("results"), list) else []
+    country = COUNTRY_CODES.get(code.upper(), "")
+    jobs: list[dict[str, object]] = []
+    for record in records:
+        if isinstance(record, dict):
+            record["_country"] = country
+            if job := normalize_job(record, "Adzuna"):
+                jobs.append(job)
+    return jobs
+
+
+def adzuna_targets(query: str, location_hint: str) -> list[tuple[str, str]]:
+    """Which (country code, city) pairs to ask Adzuna for: the places named in the search first,
+    then, when the search names none, the default markets."""
+    explicit = query_location_terms(query)
+    found: dict[str, dict[str, object]] = {}
+    for term in explicit or split_location_terms(location_hint):
+        wanted = normalize_location(term)
+        country = next((name for name, aliases in LOCATION_ALIASES.items() if any(normalize_location(alias) == wanted for alias in aliases)), "")
+        code = ADZUNA_COUNTRY_CODES.get(country)
+        if not code:
+            continue
+        entry = found.setdefault(code, {"whole_country": False, "cities": []})
+        normalized_country = normalize_location(country)
+        if wanted == normalized_country or wanted in COUNTRY_TERM_ALIASES.get(normalized_country, set()):
+            entry["whole_country"] = True
+        else:
+            entry["cities"].append(term)  # type: ignore[union-attr]
+    targets = [(code, "" if entry["whole_country"] or not entry["cities"] else str(entry["cities"][0])) for code, entry in found.items()]  # type: ignore[index]
+    if not explicit:
+        configured = [part.strip().lower() for part in os.environ.get("ADZUNA_COUNTRIES", "").split(",") if part.strip()]
+        for code in configured or ADZUNA_DEFAULT_COUNTRIES:
+            if code not in found:
+                targets.append((code, ""))
+    return targets[:ADZUNA_MAX_TARGETS]
+
+
 def cached_feed(name: str, loader) -> tuple[list[dict[str, object]], str, bool]:
-    lock = FEED_CACHE_LOCKS[name]
+    lock = FEED_CACHE_LOCKS.setdefault(name, threading.Lock())
     with lock:
         cached = FEED_CACHE.get(name)
         now = time.monotonic()
-        cache_ttl = FEED_CACHE_TTLS[name]
+        cache_ttl = FEED_CACHE_TTLS.get(name.split(":", 1)[0], 30 * 60)
         if cached and now - cached[0] < cache_ttl:
             return cached[1], cached[2], True
         try:
@@ -344,6 +429,10 @@ def cached_feed(name: str, loader) -> tuple[list[dict[str, object]], str, bool]:
             jobs = cached[1] if cached else []
             error = f"Could not refresh: {type(exc).__name__}" if cached else "Feed is temporarily unavailable."
         FEED_CACHE[name] = (time.monotonic(), jobs, error)
+        if len(FEED_CACHE) > 300:  # per-search Adzuna entries must not grow without bound
+            for stale in sorted(FEED_CACHE, key=lambda key: FEED_CACHE[key][0])[:60]:
+                FEED_CACHE.pop(stale, None)
+                FEED_CACHE_LOCKS.pop(stale, None)
         return jobs, error, False
 
 
@@ -416,6 +505,18 @@ NON_LOCATION_SEARCH = re.compile(r"\b(?:software|data|product|backend|front[- ]?
 EUROPE_COUNTRIES = {"germany", "netherlands", "france", "spain", "italy", "ireland", "sweden", "denmark", "norway", "poland", "portugal", "belgium", "austria"}
 
 
+# Where Hireloom looks when a search does not name a place: India, the main English-speaking
+# countries, and countries with close ties to India (Gulf states, Germany, France, Netherlands,
+# Japan, Malaysia, Sri Lanka, Nepal). Edit this list to change the default coverage. Keep it in sync
+# with DEFAULT_MARKETS in public/app.js. Remote jobs open "worldwide" always match.
+DEFAULT_MARKETS = (
+    "India",
+    "United States", "United Kingdom", "Canada", "Australia", "New Zealand", "Ireland", "Singapore", "South Africa",
+    "United Arab Emirates", "Saudi Arabia", "Qatar", "Oman", "Kuwait", "Bahrain",
+    "Germany", "France", "Netherlands", "Japan", "Malaysia", "Sri Lanka", "Nepal",
+)
+
+
 def normalize_location(value: object) -> str:
     normalized = unicodedata.normalize("NFKD", str(value or "").lower())
     return " ".join(re.sub(r"[^a-z0-9]+", " ", normalized.encode("ascii", "ignore").decode("ascii")).split())
@@ -439,6 +540,10 @@ def query_location_terms(query: str) -> list[str]:
     return list(dict.fromkeys([*explicit, *recognized]))
 
 
+# Different spellings of the same city, so "Bangalore" also finds listings that say "Bengaluru".
+CITY_SYNONYMS = ({"bangalore", "bengaluru"}, {"gurgaon", "gurugram"}, {"mumbai", "bombay"}, {"chennai", "madras"}, {"kolkata", "calcutta"}, {"delhi", "new delhi"})
+
+
 def location_matches(job: dict[str, object], terms: list[str]) -> bool:
     if not terms:
         return True
@@ -453,7 +558,8 @@ def location_matches(job: dict[str, object], terms: list[str]) -> bool:
         # Worldwide remote postings accept candidates from any profile or chat location.
         if mode == "Remote" and "worldwide" in eligible:
             return True
-        if contains(job_location, wanted) or any(contains(item, wanted) for item in eligible):
+        variants = next((group for group in CITY_SYNONYMS if wanted in group), {wanted})
+        if any(contains(job_location, name) or any(contains(item, name) for item in eligible) for name in variants):
             return True
         country = next((name for name, aliases in LOCATION_ALIASES.items() if any(normalize_location(alias) == wanted for alias in aliases)), "")
         if not country:
@@ -476,13 +582,22 @@ def location_matches(job: dict[str, object], terms: list[str]) -> bool:
     return False
 
 
+def resolve_search(query: str, location_hint: str = "") -> tuple[list[str], list[str]]:
+    """Return (places to match, keywords). A place named in the search wins. Otherwise the profile's
+    places are used together with the default markets."""
+    explicit = query_location_terms(query)
+    profile_terms = [] if explicit else split_location_terms(location_hint)
+    locations = explicit or list(dict.fromkeys([*profile_terms, *DEFAULT_MARKETS]))
+    location_tokens = {token for term in (explicit or profile_terms) for token in re.findall(r"[a-z][a-z0-9+#.-]*", term.lower())}
+    return locations, [token for token in job_search_tokens(query) if token not in location_tokens]
+
+
 def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: str = "") -> list[dict[str, object]]:
     lowered = query.lower()
-    locations = query_location_terms(query) or split_location_terms(location_hint)
-    location_tokens = {token for term in locations for token in re.findall(r"[a-z][a-z0-9+#.-]*", term.lower())}
-    tokens = [token for token in job_search_tokens(query) if token not in location_tokens]
+    locations, tokens = resolve_search(query, location_hint)
+    prefer_india = not query_location_terms(query)
     mode = "Remote" if re.search(r"\bremote\b", lowered) else "Hybrid" if re.search(r"\bhybrid\b", lowered) else "Onsite" if re.search(r"\b(on[- ]?site|in[- ]office)\b", lowered) else ""
-    ranked: list[tuple[int, int, dict[str, object]]] = []
+    ranked: list[tuple[int, int, int, dict[str, object]]] = []
     for job in jobs:
         if mode and job.get("mode") != mode:
             continue
@@ -496,9 +611,10 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
             freshness = int(job.get("published", "0"))
         except (TypeError, ValueError):
             freshness = 0
-        ranked.append((score, freshness, job))
-    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return [job for _, _, job in ranked[:60]]
+        in_india = int(prefer_india and ("India" in job.get("eligible", []) or "india" in normalize_location(job.get("location", "")).split()))
+        ranked.append((score, in_india, freshness, job))
+    ranked.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+    return [job for _, _, _, job in ranked[:60]]
 
 
 def search_live_jobs(query: str, location_hint: str = "") -> dict[str, object]:
@@ -508,15 +624,30 @@ def search_live_jobs(query: str, location_hint: str = "") -> dict[str, object]:
         ("jobicy", load_jobicy, "Jobicy"), ("himalayas", load_himalayas, "Himalayas"),
         ("remoteok", load_remoteok, "Remote OK"),
     ]
-    with ThreadPoolExecutor(max_workers=len(providers)) as pool:
-        results = list(pool.map(lambda item: cached_feed(item[0], item[1]), providers))
+    adzuna: list[tuple[str, object, str]] = []
+    if adzuna_credentials():
+        _, keywords = resolve_search(query, location_hint)
+        what = " ".join(keywords[:6])
+        for code, city in adzuna_targets(query, location_hint):
+            adzuna.append((f"adzuna:{code}:{what}:{city}".lower(), (lambda c=code, w=what, t=city: load_adzuna(c, w, t)), "Adzuna"))
+    tasks = [*providers, *adzuna]
+    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+        results = list(pool.map(lambda item: cached_feed(item[0], item[1]), tasks))
     all_jobs: list[dict[str, object]] = []
     sources: list[dict[str, object]] = []
-    for provider, result in zip(providers, results):
-        name = provider[2]
+    adzuna_parts: list[tuple[list[dict[str, object]], str, bool]] = []
+    for task, result in zip(tasks, results):
+        if task[2] == "Adzuna":
+            adzuna_parts.append(result)
+            all_jobs.extend(result[0])
+            continue
         items, error, from_cache = result
-        sources.append({"name": name, "ok": bool(items) or not error, "count": len(items), "cached": from_cache, "error": error})
+        sources.append({"name": task[2], "ok": bool(items) or not error, "count": len(items), "cached": from_cache, "error": error})
         all_jobs.extend(items)
+    if adzuna_parts:
+        errors = sorted({part[1] for part in adzuna_parts if part[1]})
+        total = sum(len(part[0]) for part in adzuna_parts)
+        sources.append({"name": "Adzuna", "ok": total > 0 or not errors, "count": total, "cached": all(part[2] for part in adzuna_parts), "error": "; ".join(errors)})
     unique = {str(job["id"]): job for job in all_jobs}
     return {"jobs": filter_live_jobs(list(unique.values()), query, location_hint), "sources": sources}
 
