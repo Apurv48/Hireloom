@@ -28,7 +28,10 @@
     if (/invalid login credentials/i.test(text)) return 'That email and password do not match.';
     if (/email not confirmed/i.test(text)) return 'Confirm your email address first: check your inbox for the link.';
     if (/already registered|already been registered/i.test(text)) return 'An account for this email already exists. Log in instead.';
-    if (/rate limit|too many/i.test(text)) return 'Too many attempts. Wait a few minutes and try again.';
+    if (/same as the old|different from the old/i.test(text)) return 'Choose a new password that is different from your current one.';
+    if (/session missing|expired|invalid.*(token|link)/i.test(text)) return 'This reset link has expired or was already used. Request a new one.';
+    if (/password.*(weak|at least|characters)|weak password/i.test(text)) return 'Choose a stronger password of at least 8 characters.';
+    if (/rate limit|too many|security purposes/i.test(text)) return 'Too many attempts. Wait a few minutes and try again.';
     if (/failed to fetch|network/i.test(text)) return 'Could not reach Hireloom. Check your connection and try again.';
     return text || fallback;
   }
@@ -53,6 +56,36 @@
       return { error: 'An account for this email already exists. Log in instead.' };
     }
     return { user: toUser(data.user), signedIn: !!data.session };
+  };
+
+  // Password reset. Supabase emails a link back to this site with the recovery tokens in the URL hash
+  // (add this site's address under Authentication > URL Configuration > Redirect URLs).
+  cloud.requestPasswordReset = async (email) => {
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/' });
+    return error ? { error: friendly(error, 'Could not send the reset email. Try again in a few minutes.') } : { ok: true };
+  };
+
+  // Call once at startup. Returns { recovery: true } when the page was opened from a reset link (a temporary
+  // session is then active so the new password can be saved), { error } when the link was rejected, or null.
+  cloud.readRecoveryLink = async () => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const query = new URLSearchParams(window.location.search);
+    const code = hash.get('error_code') || query.get('error_code');
+    const clean = () => { try { window.history.replaceState(null, '', window.location.pathname); } catch (error) { /* ignore */ } };
+    if (code || hash.get('error') || query.get('error')) {
+      clean();
+      return { error: 'This reset link has expired or was already used. Request a new one.' };
+    }
+    if (hash.get('type') !== 'recovery' || !hash.get('access_token') || !hash.get('refresh_token')) return null;
+    const tokens = { access_token: hash.get('access_token'), refresh_token: hash.get('refresh_token') };
+    clean();
+    const { error } = await sb.auth.setSession(tokens);
+    return error ? { error: friendly(error, 'This reset link is not valid. Request a new one.') } : { recovery: true };
+  };
+
+  cloud.updatePassword = async (password) => {
+    const { data, error } = await sb.auth.updateUser({ password });
+    return error ? { error: friendly(error, 'Could not update the password.') } : { user: toUser(data && data.user) };
   };
 
   // Local scope only, so signing out here does not sign the user out of their other devices.
