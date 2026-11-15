@@ -22,7 +22,6 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
-from xml.etree import ElementTree
 
 
 ROOT = Path(__file__).resolve().parent
@@ -655,6 +654,8 @@ def search_live_jobs(query: str, location_hint: str = "") -> dict[str, object]:
 def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:
     extension = Path(filename).suffix.lower()
     if extension == ".pdf":
+        if not payload.lstrip()[:5] == b"%PDF-":
+            raise ValueError("This file is not a real PDF. Save your CV as a PDF and upload that file.")
         try:
             import pdfplumber  # type: ignore[import-not-found]
         except ImportError as exc:
@@ -665,21 +666,7 @@ def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:
                 return text, len(pdf.pages)
         except Exception as exc:  # PDF parsing errors should return a useful message to the user.
             raise ValueError("We could not read this PDF. Check that it opens normally and is not password protected.") from exc
-    if extension == ".docx":
-        try:
-            with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-                document = archive.read("word/document.xml")
-                root = ElementTree.fromstring(document)
-        except (KeyError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
-            raise ValueError("We could not read this DOCX file. Try saving it again from your document editor.") from exc
-        namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-        paragraphs = []
-        for paragraph in root.findall(".//w:p", namespace):
-            content = "".join(node.text or "" for node in paragraph.findall(".//w:t", namespace))
-            if content.strip():
-                paragraphs.append(content)
-        return "\n".join(paragraphs), None
-    raise ValueError("Choose a PDF or DOCX CV.")
+    raise ValueError("Only PDF CVs are accepted. Save your CV as a PDF and upload that file.")
 
 
 def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
@@ -1012,7 +999,7 @@ class Handler(SimpleHTTPRequestHandler):
         )
         uploaded = next((part for part in headers.iter_parts() if part.get_content_disposition() == "form-data" and part.get_filename()), None)
         if uploaded is None:
-            self.send_json(400, {"error": "Choose a PDF or DOCX CV to parse."})
+            self.send_json(400, {"error": "Choose a PDF CV to parse."})
             return
         filename = Path(unescape(uploaded.get_filename() or "upload")).name
         payload = uploaded.get_payload(decode=True) or b""

@@ -25,11 +25,11 @@ create policy "user_data update own" on public.user_data
 create policy "user_data delete own" on public.user_data
   for delete to authenticated using (auth.uid() = user_id);
 
--- 2) Private bucket for CVs: max 1 MB per file, PDF or DOCX only, one folder per user.
+-- 2) Private bucket for CVs: max 1 MB per file, PDF only, one folder per user.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'cvs', 'cvs', false, 1048576,
-  array['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+  array['application/pdf']
 )
 on conflict (id) do update
   set public = false,

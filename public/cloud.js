@@ -14,10 +14,7 @@
   const TABLE = 'user_data';
   const BUCKET = 'cvs';
   const MAX_CV_BYTES = 1024 * 1024; // keep in sync with server.py and supabase/schema.sql
-  const MIME = {
-    pdf: 'application/pdf',
-    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  };
+  const MIME = { pdf: 'application/pdf' }; // CV uploads are PDF only
   const cloud = { enabled: true, MAX_CV_BYTES, onSyncError: null };
   let timer = null;
   let builder = null;
@@ -135,13 +132,13 @@
     const user = await cloud.getUser();
     if (!user) throw new Error('Not signed in');
     const ext = extensionOf(file.name);
-    if (!MIME[ext]) throw new Error('Choose a PDF or DOCX CV.');
+    if (!MIME[ext]) throw new Error('Only PDF CVs are accepted. Save your CV as a PDF and upload that file.');
     if (file.size > MAX_CV_BYTES) throw new Error('The CV must be 1 MB or smaller.');
     const path = `${user.id}/cv.${ext}`;
     const { error } = await sb.storage.from(BUCKET).upload(path, file, { upsert: true, contentType: MIME[ext] });
     if (error) throw error;
-    const other = ext === 'pdf' ? 'docx' : 'pdf';
-    await sb.storage.from(BUCKET).remove([`${user.id}/cv.${other}`]).catch(() => {});
+    // Remove a CV stored earlier in the old DOCX format so only one file is kept.
+    await sb.storage.from(BUCKET).remove([`${user.id}/cv.docx`]).catch(() => {});
     return path;
   };
 
