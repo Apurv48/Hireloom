@@ -292,7 +292,7 @@ function renderView() {
     case 'tracker': return renderTracker();
     case 'settings': return renderSettings();
     case 'plans': return renderPlans();
-    case 'login': return authMode==='signup'?renderSignup():authMode==='forgot'?renderForgot():authMode==='reset'?renderReset():renderLogin();
+    case 'login': return authMode==='signup'?renderSignup():authMode==='forgot'?renderForgot():authMode==='verify'?renderVerify():authMode==='reset'?renderReset():renderLogin();
     default: return renderChat();
   }
 }
@@ -308,15 +308,19 @@ function authMessageHtml() {
   return authMessage?`<p class="auth-message${authMessage.startsWith('✓')?' info':''}">${esc(authMessage)}</p>`:'';
 }
 function renderForgot() {
-  if(!cloud.enabled)return `<section class="logged-out-wrap">${authBrandHtml()}<div class="card logged-out-card"><span class="eyebrow">Account recovery</span><h1>Forgot your password?</h1><p class="subhead">Resetting a password needs an email service, which the local demo account does not have. Its login lives only in this browser, so you can clear this site's data in your browser settings to start again, or set up Hireloom accounts (see the README) to get email reset.</p><p class="login-switch"><button class="text-button" data-action="show-login">Back to log in</button></p></div></section>`;
-  return `<section class="logged-out-wrap">${authBrandHtml()}<div class="card logged-out-card"><span class="eyebrow">Account recovery</span><h1>Forgot your password?</h1><p class="subhead">Enter the email for your account and we will send you a link to choose a new password.</p>${authMessageHtml()}<form id="forgot-form" class="login-form"><div class="field"><label for="forgot-email">Email</label><input id="forgot-email" name="email" type="email" value="${esc(authDraft.email||authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><button class="primary-button login-submit">Send reset link</button></form><p class="login-switch">Remembered it? <button class="text-button" data-action="show-login">Back to log in</button></p><p class="login-note">The link is valid for a limited time and works once. If nothing arrives, check your spam folder or try again in a few minutes.</p></div></section>`;
+  if(!cloud.enabled)return `<section class="logged-out-wrap">${authBrandHtml()}<div class="card logged-out-card"><span class="eyebrow">Account recovery</span><h1>Forgot your password?</h1><p class="subhead">Resetting a password needs an email service, which the local demo account does not have. Its login lives only in this browser, so you can clear this site's data in your browser settings to start again, or set up Hireloom accounts (see the README) to get reset by email code.</p><p class="login-switch"><button class="text-button" data-action="show-login">Back to log in</button></p></div></section>`;
+  return `<section class="logged-out-wrap">${authBrandHtml()}<div class="card logged-out-card"><span class="eyebrow">Account recovery</span><h1>Forgot your password?</h1><p class="subhead">Enter the email for your account and we will email you a one-time code to confirm it is you.</p>${authMessageHtml()}<form id="forgot-form" class="login-form"><div class="field"><label for="forgot-email">Email</label><input id="forgot-email" name="email" type="email" value="${esc(authDraft.email||authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><button class="primary-button login-submit">Send code</button></form><p class="login-switch">Remembered it? <button class="text-button" data-action="show-login">Back to log in</button></p><p class="login-note">The code works once and expires after a short time. If nothing arrives, check your spam folder or try again in a few minutes.</p></div></section>`;
+}
+function renderVerify() {
+  const email=authDraft.email||authData.lastEmail;
+  return `<section class="logged-out-wrap">${authBrandHtml()}<div class="card logged-out-card"><span class="eyebrow">Account recovery</span><h1>Enter your code</h1><p class="subhead">We emailed a one-time code to <strong>${esc(email)}</strong>. Enter it below to continue.</p>${authMessageHtml()}<form id="verify-form" class="login-form"><div class="field"><label for="verify-code">One-time code</label><input id="verify-code" name="code" class="otp-input" inputmode="numeric" maxlength="12" autocomplete="one-time-code" placeholder="123456" required autofocus /></div><button class="primary-button login-submit">Verify code</button></form><p class="login-switch">Didn’t get it? <button class="text-button" data-action="resend-code">Send a new code</button> · <button class="text-button" data-action="show-forgot">Use a different email</button></p><p class="login-note">Only the most recent code works. Check your spam folder if it does not arrive within a minute or two.</p></div></section>`;
 }
 function renderReset() {
-  return `<section class="logged-out-wrap">${authBrandHtml()}<div class="card logged-out-card"><span class="eyebrow">Account recovery</span><h1>Choose a new password</h1><p class="subhead">Pick a new password for your Hireloom account.</p>${authMessageHtml()}<form id="reset-form" class="login-form"><div class="field"><label for="reset-password">New password</label><div class="password-input"><input id="reset-password" name="password" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="reset-password">Show</button></div><small>Use at least 8 characters.</small></div><div class="field"><label for="reset-confirm">Confirm new password</label><div class="password-input"><input id="reset-confirm" name="confirm" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="reset-confirm">Show</button></div></div><button class="primary-button login-submit">Update password</button></form><p class="login-switch"><button class="text-button" data-action="cancel-reset">Cancel</button></p></div></section>`;
+  return `<section class="logged-out-wrap">${authBrandHtml()}<div class="card logged-out-card"><span class="eyebrow">Account recovery</span><h1>Choose a new password</h1><p class="subhead">Your code was verified. Pick a new password for your Hireloom account.</p>${authMessageHtml()}<form id="reset-form" class="login-form"><div class="field"><label for="reset-password">New password</label><div class="password-input"><input id="reset-password" name="password" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="reset-password">Show</button></div><small>Use at least 8 characters.</small></div><div class="field"><label for="reset-confirm">Confirm new password</label><div class="password-input"><input id="reset-confirm" name="confirm" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="reset-confirm">Show</button></div></div><button class="primary-button login-submit">Update password</button></form><p class="login-switch"><button class="text-button" data-action="cancel-reset">Cancel</button></p></div></section>`;
 }
 
 function renderSignup() {
-  return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Start your search</span><h1>Create your account</h1><p class="subhead">${cloud.enabled?'Create your Hireloom account.':'Set up a local Hireloom demo account.'}</p>${authMessage?`<p class="auth-message${authMessage.startsWith('✓')?' info':''}">${esc(authMessage)}</p>`:''}<form id="signup-form" class="login-form"><div class="field"><label for="signup-name">Full name</label><input id="signup-name" name="name" value="${esc(authDraft.name)}" autocomplete="name" required /></div><div class="field"><label for="signup-email">Email</label><input id="signup-email" name="email" type="email" value="${esc(authDraft.email||authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><div class="field"><label for="signup-password">Password</label><div class="password-input"><input id="signup-password" name="password" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-password">Show</button></div><small>Use at least 8 characters.</small></div><div class="field"><label for="signup-confirm">Confirm password</label><div class="password-input"><input id="signup-confirm" name="confirm" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-confirm">Show</button></div></div><label class="consent-row"><input type="checkbox" name="localConsent" required /> <span>${cloud.enabled?'I agree that Hireloom stores my profile, searches and CV in my account so I can use them on any device.':'I understand this demo saves my profile and a password hash in this browser.'}</span></label><button class="primary-button login-submit">Create account</button></form><p class="login-switch">Already have an account? <button class="text-button" data-action="show-login">Log in</button></p><p class="login-note">${cloud.enabled?'You may need to confirm your email address before logging in. If you forget your password you can reset it by email from the login page.':'This creates a local demo account only. There is no email verification or account recovery.'}</p></div></section>`;
+  return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Start your search</span><h1>Create your account</h1><p class="subhead">${cloud.enabled?'Create your Hireloom account.':'Set up a local Hireloom demo account.'}</p>${authMessage?`<p class="auth-message${authMessage.startsWith('✓')?' info':''}">${esc(authMessage)}</p>`:''}<form id="signup-form" class="login-form"><div class="field"><label for="signup-name">Full name</label><input id="signup-name" name="name" value="${esc(authDraft.name)}" autocomplete="name" required /></div><div class="field"><label for="signup-email">Email</label><input id="signup-email" name="email" type="email" value="${esc(authDraft.email||authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><div class="field"><label for="signup-password">Password</label><div class="password-input"><input id="signup-password" name="password" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-password">Show</button></div><small>Use at least 8 characters.</small></div><div class="field"><label for="signup-confirm">Confirm password</label><div class="password-input"><input id="signup-confirm" name="confirm" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-confirm">Show</button></div></div><label class="consent-row"><input type="checkbox" name="localConsent" required /> <span>${cloud.enabled?'I agree that Hireloom stores my profile, searches and CV in my account so I can use them on any device.':'I understand this demo saves my profile and a password hash in this browser.'}</span></label><button class="primary-button login-submit">Create account</button></form><p class="login-switch">Already have an account? <button class="text-button" data-action="show-login">Log in</button></p><p class="login-note">${cloud.enabled?'You may need to confirm your email address before logging in. If you forget your password you can reset it with a code sent to your email from the login page.':'This creates a local demo account only. There is no email verification or account recovery.'}</p></div></section>`;
 }
 
 function renderJobCard(job,scoreOverride) {
@@ -457,6 +461,8 @@ function attachViewEvents() {
   if(loginForm) loginForm.addEventListener('submit',(event)=>{event.preventDefault();loginUser(new FormData(loginForm));});
   const forgotForm=$('#forgot-form');
   if(forgotForm) forgotForm.addEventListener('submit',(event)=>{event.preventDefault();cloudForgotPassword(new FormData(forgotForm));});
+  const verifyForm=$('#verify-form');
+  if(verifyForm) verifyForm.addEventListener('submit',(event)=>{event.preventDefault();cloudVerifyCode(new FormData(verifyForm));});
   const resetForm=$('#reset-form');
   if(resetForm) resetForm.addEventListener('submit',(event)=>{event.preventDefault();cloudResetPassword(new FormData(resetForm));});
   const signupForm=$('#signup-form');
@@ -636,15 +642,31 @@ async function cloudSignup(formData) {
   if(!result.signedIn){authMode='login';authMessage='✓ Account created. Check your email to confirm your address, then log in.';render();return;}
   await enterCloudWorkspace(result.user,name);
 }
+let resetCodeSentAt=0;
+async function sendResetCode(email,button) {
+  const wait=Math.ceil((resetCodeSentAt+60000-Date.now())/1000);
+  if(wait>0&&authMode==='verify'){toast(`Please wait ${wait} seconds before requesting another code.`,'error');return false;}
+  if(button){button.disabled=true;button.textContent='Sending…';}
+  const result=await cloud.requestResetCode(email);
+  if(result.error){authMessage=result.error;render();return false;}
+  resetCodeSentAt=Date.now();
+  // The same screen is shown whether or not the address has an account.
+  authMode='verify';authMessage=`✓ If an account exists for this email, a code is on its way.`;render();
+  return true;
+}
 async function cloudForgotPassword(formData) {
   const email=normalizeEmail(formData.get('email'));
   authDraft={name:'',email};authData.lastEmail=email;saveAuth();
   if(!email){authMessage='Enter the email address for your account.';render();return;}
-  const button=$('.login-submit');if(button){button.disabled=true;button.textContent='Sending…';}
-  const result=await cloud.requestPasswordReset(email);
+  await sendResetCode(email,$('.login-submit'));
+}
+async function cloudVerifyCode(formData) {
+  const email=authDraft.email||authData.lastEmail,code=String(formData.get('code')||'').replace(/\s+/g,'');
+  if(!/^\d{6,10}$/.test(code)){authMessage='Enter the numeric code from the email.';render();return;}
+  const button=$('.login-submit');if(button){button.disabled=true;button.textContent='Verifying…';}
+  const result=await cloud.verifyResetCode(email,code);
   if(result.error){authMessage=result.error;render();return;}
-  // The same message is shown whether or not the address has an account.
-  authMode='login';authMessage=`✓ If an account exists for ${email}, a password reset link is on its way. Check your inbox and spam folder.`;render();
+  authMode='reset';authMessage='';render();
 }
 async function cloudResetPassword(formData) {
   const password=String(formData.get('password')||''),confirm=String(formData.get('confirm')||'');
@@ -916,6 +938,7 @@ document.addEventListener('click',(event)=>{
   switch(action.dataset.action){
     case 'show-signup':authDraft={name:'',email:$('#login-email')?.value||authData.lastEmail};authMode='signup';authMessage='';render();break;
     case 'show-forgot':authDraft={name:'',email:$('#login-email')?.value||authData.lastEmail};authMode='forgot';authMessage='';render();break;
+    case 'resend-code':sendResetCode(authDraft.email||authData.lastEmail,null);break;
     case 'cancel-reset':cloud.signOut().finally(()=>{authMode='login';authMessage='';render();});break;
     case 'show-login':authData.lastEmail=$('#signup-email')?.value||authData.lastEmail;saveAuth();authMode='login';authMessage='';render();break;
     case 'toggle-password':{const input=document.getElementById(id);if(input){input.type=input.type==='password'?'text':'password';action.textContent=input.type==='password'?'Show':'Hide';}break;}
@@ -988,12 +1011,9 @@ document.addEventListener('keydown',(event)=>{if(event.key==='Escape'){pendingDe
 
 render();
 if(cloud.enabled){
-  // A password-reset email opens the site with recovery tokens in the URL; handle that before restoring a session.
-  cloud.readRecoveryLink().then((link)=>{
-    if(link&&link.recovery){authMode='reset';authMessage='';render();return;}
-    if(link&&link.error){authMode='forgot';authMessage=link.error;render();return;}
+  // If a reset code was verified but the new password never saved, ask for it instead of signing in silently.
+  cloud.resetPending().then((pending)=>{
+    if(pending){authMode='reset';authMessage='';render();return;}
     return cloud.getUser().then((user)=>{if(user)enterCloudWorkspace(user);});
   }).catch(()=>{});
 }
-
-

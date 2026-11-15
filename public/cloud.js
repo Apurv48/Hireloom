@@ -29,7 +29,7 @@
     if (/email not confirmed/i.test(text)) return 'Confirm your email address first: check your inbox for the link.';
     if (/already registered|already been registered/i.test(text)) return 'An account for this email already exists. Log in instead.';
     if (/same as the old|different from the old/i.test(text)) return 'Choose a new password that is different from your current one.';
-    if (/session missing|expired|invalid.*(token|link)/i.test(text)) return 'This reset link has expired or was already used. Request a new one.';
+    if (/session missing/i.test(text)) return 'Your reset session has expired. Request a new code.';
     if (/password.*(weak|at least|characters)|weak password/i.test(text)) return 'Choose a stronger password of at least 8 characters.';
     if (/rate limit|too many|security purposes/i.test(text)) return 'Too many attempts. Wait a few minutes and try again.';
     if (/failed to fetch|network/i.test(text)) return 'Could not reach Hireloom. Check your connection and try again.';
@@ -58,38 +58,43 @@
     return { user: toUser(data.user), signedIn: !!data.session };
   };
 
-  // Password reset. Supabase emails a link back to this site with the recovery tokens in the URL hash
-  // (add this site's address under Authentication > URL Configuration > Redirect URLs).
-  cloud.requestPasswordReset = async (email) => {
-    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/' });
-    return error ? { error: friendly(error, 'Could not send the reset email. Try again in a few minutes.') } : { ok: true };
+  // Password reset by one-time code. Supabase emails a numeric code (the "Reset Password" email template must
+  // contain {{ .Token }}, see README); the user types it here, and a correct code opens a short session
+  // that is used only to save the new password.
+  const RESET_FLAG = 'hireloom-reset-pending';
+  const setFlag = (on) => { try { if (on) localStorage.setItem(RESET_FLAG, '1'); else localStorage.removeItem(RESET_FLAG); } catch (error) { /* storage unavailable */ } };
+  const hasFlag = () => { try { return localStorage.getItem(RESET_FLAG) === '1'; } catch (error) { return false; } };
+
+  cloud.requestResetCode = async (email) => {
+    const { error } = await sb.auth.resetPasswordForEmail(email);
+    return error ? { error: friendly(error, 'Could not send the code. Try again in a few minutes.') } : { ok: true };
   };
 
-  // Call once at startup. Returns { recovery: true } when the page was opened from a reset link (a temporary
-  // session is then active so the new password can be saved), { error } when the link was rejected, or null.
-  cloud.readRecoveryLink = async () => {
-    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-    const query = new URLSearchParams(window.location.search);
-    const code = hash.get('error_code') || query.get('error_code');
-    const clean = () => { try { window.history.replaceState(null, '', window.location.pathname); } catch (error) { /* ignore */ } };
-    if (code || hash.get('error') || query.get('error')) {
-      clean();
-      return { error: 'This reset link has expired or was already used. Request a new one.' };
-    }
-    if (hash.get('type') !== 'recovery' || !hash.get('access_token') || !hash.get('refresh_token')) return null;
-    const tokens = { access_token: hash.get('access_token'), refresh_token: hash.get('refresh_token') };
-    clean();
-    const { error } = await sb.auth.setSession(tokens);
-    return error ? { error: friendly(error, 'This reset link is not valid. Request a new one.') } : { recovery: true };
+  cloud.verifyResetCode = async (email, code) => {
+    const { error } = await sb.auth.verifyOtp({ email, token: code, type: 'recovery' });
+    if (error) return { error: /rate limit|too many/i.test(error.message || '') ? friendly(error) : 'That code is incorrect or has expired. Check it, or request a new code.' };
+    setFlag(true);
+    return { ok: true };
+  };
+
+  // True when a correct code was entered but the new password was never saved (for example the tab was closed),
+  // so the app asks for the new password instead of silently signing the user in.
+  cloud.resetPending = async () => {
+    if (!hasFlag()) return false;
+    const user = await cloud.getUser();
+    if (!user) setFlag(false);
+    return !!user;
   };
 
   cloud.updatePassword = async (password) => {
     const { data, error } = await sb.auth.updateUser({ password });
-    return error ? { error: friendly(error, 'Could not update the password.') } : { user: toUser(data && data.user) };
+    if (error) return { error: friendly(error, 'Could not update the password.') };
+    setFlag(false);
+    return { user: toUser(data && data.user) };
   };
 
   // Local scope only, so signing out here does not sign the user out of their other devices.
-  cloud.signOut = async () => { try { await sb.auth.signOut({ scope: 'local' }); } catch (error) { /* already signed out */ } };
+  cloud.signOut = async () => { setFlag(false); try { await sb.auth.signOut({ scope: 'local' }); } catch (error) { /* already signed out */ } };
 
   cloud.pull = async () => {
     const user = await cloud.getUser();
