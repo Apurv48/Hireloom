@@ -7,7 +7,7 @@ A local-first, interactive prototype of the candidate job-search loop from the s
 1. Install Python 3.10 or newer.
 2. For PDF parsing, install the optional parser once: `python -m pip install pdfplumber`.
 3. Open PowerShell in this folder and run `.\run.ps1` (or `python .\server.py`; it serves `public/` and the same API routes).
-4. Open [http://127.0.0.1:8765](http://127.0.0.1:8765).
+4. Open https://hireloom-hireloom.vercel.app/#.
 
 When run locally, the server binds to localhost. The app starts on the login screen every time, including after logout. Sign-up and password login are local demo features: a random salt and PBKDF2 password hash are stored in this browser; no account server, email verification, or password recovery is connected. Profile, conversations, saved jobs, and applications are also stored in this browser. CV files are uploaded to the Hireloom server for in-memory parsing and are not retained by the app. Use `http://127.0.0.1:8765` locally so browser cryptography is available.
 
