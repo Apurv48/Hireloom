@@ -2,7 +2,7 @@
 
 A local-first, interactive prototype of the candidate job-search loop from the supplied PRD and wireframes. It runs locally with no setup, and is deployed on Vercel with Supabase accounts.
 
-**Live app:** [https://hireloom-hireloom.vercel.app](https://hireloom-hireloom.vercel.app)
+**Live app:** [https://hireloom-hireloom.vercel.app](https://hireloom-nine.vercel.app/)
 
 ## Run it
 
