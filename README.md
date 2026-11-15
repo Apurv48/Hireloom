@@ -70,7 +70,7 @@ The free remote feeds carry few on-site or hybrid jobs outside Germany. For thos
 - Delete individual saved search chats from the sidebar.
 - Review per-job match details, matched skills, gaps, and ATS readiness.
 - Edit, approve, or reject a job-specific CV draft built only from profile content.
-- Download an approved, ATS-friendly DOCX CV.
+- Download an approved, ATS-friendly CV as a PDF (single column, selectable text, standard fonts). CVs are created and downloaded only as PDF.
 - Record a native demo application or an external handoff, then update its status in the tracker.
 - Save jobs, export local data, change notification preferences, and delete browser data.
 

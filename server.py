@@ -10,7 +10,6 @@ import sys
 import threading
 import time
 import unicodedata
-import zipfile
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape
 from email import policy
@@ -890,77 +889,79 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
     }
 
 
-def make_docx(payload: dict[str, object]) -> bytes:
-    job = payload.get("job") if isinstance(payload.get("job"), dict) else {}
+def pdf_safe(text: str) -> str:
+    """Keep only characters the built-in PDF fonts can draw, so the CV never shows boxes."""
+    cleaned = "".join(char for char in str(text) if char in "\t\n" or ord(char) >= 32)
+    cleaned = cleaned.replace("\t", " ").replace("\u00a0", " ").replace("\u2022", "-")
+    return "".join(char if char in "\n" or _encodable(char) else "?" for char in cleaned)
+
+
+def _encodable(char: str) -> bool:
+    try:
+        char.encode("cp1252")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
+def make_pdf(payload: dict[str, object]) -> bytes:
+    """Build the approved, ATS-friendly CV as a single-column PDF with real, selectable text."""
+    try:
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import HRFlowable, ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer
+    except ImportError as exc:
+        raise RuntimeError("PDF CV creation needs reportlab. Install it with: python -m pip install reportlab") from exc
+
     version = payload.get("version") if isinstance(payload.get("version"), dict) else {}
     profile = version.get("profile") if isinstance(version.get("profile"), dict) else {}
-    _job_title = str(job.get("title", "Target role"))
-    name = str(profile.get("name", "Candidate"))
-    contact = " · ".join(value for value in [str(profile.get("email", "")), str(profile.get("phone", "")), str(profile.get("location", ""))] if value.strip())
+    name = pdf_safe(str(profile.get("name", "")).strip()) or "Candidate"
+    headline = pdf_safe(str(profile.get("title", "")).strip())
+    contact = " | ".join(pdf_safe(str(profile.get(key, "")).strip()) for key in ("email", "phone", "location") if str(profile.get(key, "")).strip())
     skills = version.get("skills") if isinstance(version.get("skills"), list) else []
-    fields = [
-        (name, "Title"),
-        (str(profile.get("title", "")), "Subtitle"),
-        (contact, "Normal"),
-        ("", "Normal"),
-        ("Summary", "Heading1"),
-        (str(version.get("summary", "")), "Normal"),
-        ("", "Normal"),
-        ("Experience", "Heading1"),
-        (str(version.get("bullet", "")), "Normal"),
-        ("", "Normal"),
-        ("Skills", "Heading1"),
-        (", ".join(str(skill) for skill in skills), "Normal"),
-        ("", "Normal"),
-        ("Education", "Heading1"),
-        (str(profile.get("education", "")), "Normal"),
-    ]
-    paragraphs = []
-    for text, style in fields:
-        safe_text = escape("".join(char for char in text if char in "\t\n\r" or ord(char) >= 32))
-        paragraphs.append(f'<w:p><w:pPr><w:pStyle w:val="{style}"/></w:pPr><w:r><w:t xml:space="preserve">{safe_text}</w:t></w:r></w:p>')
-    document_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        f'<w:body>{"".join(paragraphs)}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1152" w:right="1152" w:bottom="1152" w:left="1152"/></w:sectPr></w:body></w:document>'
-    )
-    styles_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
-        '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:rPr><w:b/><w:sz w:val="34"/></w:rPr></w:style>'
-        '<w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:rPr><w:sz w:val="24"/></w:rPr></w:style>'
-        '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:rPr><w:b/><w:sz w:val="26"/></w:rPr></w:style>'
-        '</w:styles>'
-    )
-    types_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-        '<Default Extension="xml" ContentType="application/xml"/>'
-        '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
-        '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
-        '</Types>'
-    )
-    rels_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
-        '</Relationships>'
-    )
-    doc_rels_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
-        '</Relationships>'
-    )
+    skill_line = pdf_safe(", ".join(str(skill).strip() for skill in skills if str(skill).strip()))
+
+    base = ParagraphStyle("base", fontName="Helvetica", fontSize=10.5, leading=14.5, alignment=TA_LEFT, textColor="#111111")
+    title = ParagraphStyle("title", parent=base, fontName="Helvetica-Bold", fontSize=20, leading=24, spaceAfter=2)
+    subtitle = ParagraphStyle("subtitle", parent=base, fontSize=12, leading=16, textColor="#333333")
+    small = ParagraphStyle("small", parent=base, fontSize=9.5, textColor="#444444", spaceAfter=4)
+    heading = ParagraphStyle("heading", parent=base, fontName="Helvetica-Bold", fontSize=12, leading=16, spaceBefore=12, spaceAfter=3)
+
+    def para(text: str, style) -> Paragraph:
+        return Paragraph(escape(text).replace("\n", "<br/>"), style)
+
+    story: list = [para(name, title)]
+    if headline:
+        story.append(para(headline, subtitle))
+    if contact:
+        story.append(para(contact, small))
+    story.append(HRFlowable(width="100%", thickness=0.6, color="#999999", spaceBefore=2, spaceAfter=2))
+
+    def section(label: str, body: str, bullets: bool = False) -> None:
+        body = body.strip()
+        if not body:
+            return
+        story.append(para(label, heading))
+        if bullets:
+            items = [line.strip(" -*\t") for line in body.splitlines() if line.strip(" -*\t")]
+            story.append(ListFlowable([ListItem(para(item, base), leftIndent=12) for item in items], bulletType="bullet", start="-", leftIndent=12, bulletFontSize=10))
+        else:
+            story.append(para(body, base))
+
+    section("Summary", pdf_safe(str(version.get("summary", ""))))
+    section("Experience", pdf_safe(str(version.get("bullet", ""))), bullets=True)
+    section("Skills", skill_line)
+    section("Education", pdf_safe(str(profile.get("education", ""))))
+    story.append(Spacer(1, 2 * mm))
+
     output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", types_xml)
-        archive.writestr("_rels/.rels", rels_xml)
-        archive.writestr("word/document.xml", document_xml)
-        archive.writestr("word/styles.xml", styles_xml)
-        archive.writestr("word/_rels/document.xml.rels", doc_rels_xml)
+    document = SimpleDocTemplate(
+        output, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm, bottomMargin=18 * mm,
+        title=f"{name} - CV", author=name, creator="Hireloom", pageCompression=1,
+    )
+    document.build(story)
     return output.getvalue()
 
 
@@ -1021,13 +1022,16 @@ class Handler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(content_length))
             if not isinstance(payload, dict):
                 raise ValueError("Expected CV data as a JSON object.")
-            document = make_docx(payload)
+            document = make_pdf(payload)
+        except RuntimeError as exc:
+            self.send_json(500, {"error": str(exc)})
+            return
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             self.send_json(400, {"error": "The approved CV draft could not be read."})
             return
         self.send_response(200)
-        self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        self.send_header("Content-Disposition", 'attachment; filename="Hireloom_Approved_CV.docx"')
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Disposition", 'attachment; filename="Hireloom_Approved_CV.pdf"')
         self.send_header("Content-Length", str(len(document)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
