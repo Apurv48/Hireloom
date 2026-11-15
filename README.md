@@ -1,13 +1,15 @@
 # Hireloom MVP
 
-A local-first, interactive prototype of the candidate job-search loop from the supplied PRD and wireframes.
+A local-first, interactive prototype of the candidate job-search loop from the supplied PRD and wireframes. It runs locally with no setup, and is deployed on Vercel with Supabase accounts.
+
+**Live app:** [https://hireloom-hireloom.vercel.app](https://hireloom-hireloom.vercel.app)
 
 ## Run it
 
 1. Install Python 3.10 or newer.
 2. For PDF parsing, install the optional parser once: `python -m pip install pdfplumber`.
 3. Open PowerShell in this folder and run `.\run.ps1` (or `python .\server.py`; it serves `public/` and the same API routes).
-4. Open https://hireloom-hireloom.vercel.app.
+4. Open [http://127.0.0.1:8765](http://127.0.0.1:8765). The hosted version is at [hireloom-hireloom.vercel.app](https://hireloom-hireloom.vercel.app).
 
 When run locally, the server binds to localhost. The app starts on the login screen every time, including after logout. Sign-up and password login are local demo features: a random salt and PBKDF2 password hash are stored in this browser; no account server, email verification, or password recovery is connected. Profile, conversations, saved jobs, and applications are also stored in this browser. CV files are uploaded to the Hireloom server for in-memory parsing and are not retained by the app. Use `http://127.0.0.1:8765` locally so browser cryptography is available.
 
@@ -17,7 +19,7 @@ The repository is set up for Vercel (`vercel.json`). Static files live in `publi
 
 1. In Vercel choose **Add New → Project** and import this GitHub repository.
 2. Keep the framework preset on **Other**. No build command is needed and no environment variables are required; Vercel installs `requirements.txt` for the functions. To add on-site and hybrid jobs in India and other countries, set the optional `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` variables (see Job coverage).
-3. Deploy. Every push to `main` redeploys automatically.
+3. Deploy. Every push to `main` redeploys automatically. This project's deployment is at [https://hireloom-hireloom.vercel.app](https://hireloom-hireloom.vercel.app).
 
 Things to know on Vercel: the job-feed cache lives in each warm function instance, so the first search after a quiet period refetches the feeds and can take a few seconds. CV uploads are capped at 1 MB (see Accounts and storage). The Hobby plan is meant for personal, non-commercial projects.
 
@@ -30,19 +32,22 @@ Hireloom can sign users in and keep their workspace on any device using a free [
 1. Create a Supabase project (the free plan is enough).
 2. Open **SQL Editor**, paste the contents of `supabase/schema.sql` and run it. It creates the `user_data` table, a private `cvs` storage bucket limited to 1 MB PDF/DOCX files, Row Level Security rules so each user can only read and change their own data, and a `delete_my_account()` function.
 3. Open **Project Settings → API** and copy the project URL and the `anon public` key into `public/config.js`. The anon key is designed to be public; the Row Level Security rules protect the data. Never put the `service_role` key in this repository.
-4. Open **Authentication → URL Configuration** and set the Site URL to your deployed address. Under **Redirect URLs** add the same address and `http://127.0.0.1:8765/**` for local testing.
-5. Open **Authentication → Email Templates → Reset Password** and replace the template body with the contents of `supabase/recovery-email-template.html` (paste the file as it is, and set the Subject field above the body to `Your Hireloom password reset code`). This makes the password-reset email carry a one-time code (`{{ .Token }}`) instead of a link; without this step the email still contains Supabase's default reset link and the code screen will have nothing to verify. In **Authentication → Providers → Email** you can also set the code length (6 digits is the default and what the screen expects) and how long a code stays valid.
-6. Open **Authentication → Providers → Email**. Supabase's built-in email sender is heavily rate-limited, so for anything beyond testing either turn off "Confirm email" or add your own SMTP provider.
-7. Commit `public/config.js` and redeploy.
+4. Open **Authentication → URL Configuration** and set the Site URL to your deployed address (for this project `https://hireloom-hireloom.vercel.app`). Under **Redirect URLs** add the same address and `http://127.0.0.1:8765/**` for local testing.
+5. Set up custom SMTP under **Authentication → Emails → SMTP Settings**. Supabase will not let you edit email templates until this is on, and its built-in sender only delivers to your own team's addresses and is heavily rate-limited, so reset codes will not reach ordinary users without it. With no custom domain, the simplest option is Gmail: turn on 2-Step Verification, create an App Password at myaccount.google.com/apppasswords, then use host `smtp.gmail.com`, port `465`, your full Gmail address as both username and sender email, and the 16-character app password (no spaces) as the password. Gmail allows about 500 emails a day; for real traffic move to a transactional provider on your own domain (Resend, Brevo and similar).
+6. Open **Authentication → Email Templates → Reset Password** and replace the template body with the contents of `supabase/recovery-email-template.html` (paste the file as it is, and set the Subject field above the body to `Your Hireloom password reset code`). This makes the password-reset email carry a one-time code (`{{ .Token }}`) instead of a link; without this step the email still contains Supabase's default reset link and the code screen will have nothing to verify. In **Authentication → Providers → Email** you can also set the code length (6 digits is the default and what the screen expects) and how long a code stays valid.
+7. Open **Authentication → Providers → Email**. Decide whether to keep "Confirm email" on (new users must click the confirmation email before logging in) or turn it off for frictionless sign-up while testing.
+8. Commit `public/config.js` and redeploy.
 
 What it does:
 
-- **Forgot password (email code):** the login page has a "Forgot password?" link. The user enters their email and Supabase sends a one-time numeric code (no link). They type the code into Hireloom, which verifies it with Supabase; only then does the "Choose a new password" page (8+ characters) appear, and saving it signs them in. The same screen is shown whether or not the address has an account, a wrong or expired code shows an error without signing anyone in, resending is limited to once a minute, and closing the tab after verifying but before saving a password brings the user back to the new-password step instead of logging them in. The email wording is edited under **Authentication → Email Templates**; the built-in sender is rate-limited (see step 6), so use your own SMTP provider for real traffic. Local demo accounts cannot be reset because there is no email service.
+- **Forgot password (email code):** the login page has a "Forgot password?" link. The user enters their email and Supabase sends a one-time numeric code (no link). They type the code into Hireloom, which verifies it with Supabase; only then does the "Choose a new password" page (8+ characters) appear, and saving it signs them in. The same screen is shown whether or not the address has an account, a wrong or expired code shows an error without signing anyone in, resending is limited to once a minute, and closing the tab after verifying but before saving a password brings the user back to the new-password step instead of logging them in. The email wording is edited under **Authentication → Email Templates**; emails are sent through the SMTP provider from step 5. Local demo accounts cannot be reset because there is no email service.
 - **Accounts:** email and password sign-up and login handled by Supabase Auth. Passwords are never stored by Hireloom. Sessions persist on each device and log out only that device.
 - **Workspace sync:** profile, chats, saved jobs, tracker, tailored CVs and settings are saved to one row per user a couple of seconds after each change, and loaded at login. Search results are not synced because they come from live feeds; each search re-runs on the device you open it on. The latest change wins if two devices are edited at once.
 - **CV storage:** after the user confirms a parsed CV, the file is stored privately as `<user id>/cv.pdf` or `cv.docx`. Each user has one stored CV and a new upload replaces it, which keeps storage small. The 1 MB limit is enforced in the browser, in `server.py` and by the bucket itself. Users can download their stored CV from the Profile page. At up to 1 MB per user the free 1 GB of file storage covers at least 1,000 users, and far more with typical CV sizes.
 - **Shared devices:** logging out clears the local copy of the workspace so accounts never mix on one browser.
 - **Delete account:** Settings → Privacy removes the login, workspace row and stored CV.
+
+Troubleshooting reset emails: if the app says a code is on its way but nothing arrives, open Supabase **Logs → Auth** and look for the `/recover` entry. A 200 means Supabase accepted the request and the problem is delivery (check Spam and All Mail; confirm the SMTP settings and app password). "Error sending recovery email" means the SMTP login is being rejected, usually a wrong or space-containing app password, 2-Step Verification being off, or a username that differs from the sender address.
 
 Known gaps: no email-change flow, no "change password" form for users who are already logged in, and the Supabase free plan pauses projects after a week without activity and has no automatic backups.
 
