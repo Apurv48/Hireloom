@@ -11,7 +11,7 @@ A local-first, interactive prototype of the candidate job-search loop from the s
 3. Open PowerShell in this folder and run `.\run.ps1` (or `python .\server.py`; it serves `public/` and the same API routes).
 4. Open [http://127.0.0.1:8765](http://127.0.0.1:8765). The hosted version is at [hireloom-hireloom.vercel.app](https://hireloom-nine.vercel.app/).
 
-When run locally, the server binds to localhost. The app starts on the login screen every time, including after logout. Sign-up and password login are local demo features: a random salt and PBKDF2 password hash are stored in this browser; no account server, email verification, or password recovery is connected. Profile, conversations, saved jobs, and applications are also stored in this browser. CV files are uploaded to the Hireloom server for in-memory parsing and are not retained by the app. Use `http://127.0.0.1:8765` locally so browser cryptography is available.
+When run locally, the server binds to localhost. The app starts on the login screen every time, including after logout. Sign-up and password login are local demo features: a random salt and PBKDF2 password hash are stored in this browser; no account server, email verification, or password recovery is connected. Profile, conversations, saved jobs, and applications are also stored in this browser. CV files are uploaded to the Hireloom server for in-memory parsing only if you agree when asked, and are not retained by the app. Use `http://127.0.0.1:8765` locally so browser cryptography is available.
 
 ## Deploy to Vercel
 
@@ -66,7 +66,7 @@ The free remote feeds carry few on-site or hybrid jobs outside Germany. For thos
 - Filter the downloaded listings by work mode, location, skills, and profile preferences without sending the CV or profile to job sites.
 - Create an account and log in on any device (Supabase mode), or a local demo account whose password hash stays in this browser (default when Supabase is not configured).
 - Edit a candidate profile and preferences; add and remove skills.
-- Upload a text-based PDF (up to 1 MB; DOCX and other formats are not accepted), review every profile field against the CV, including contact details, career history, education, skills, achievements, certifications, languages and any explicitly stated preferences, then choose what to update. Missing CV values stay unchanged.
+- Choose a PDF CV (up to 1 MB; DOCX and other formats are not accepted). Hireloom first asks whether you want it to read the CV: if you say no, nothing is parsed, sent or stored and you fill in your profile by hand. If you say yes, the PDF is parsed (text-based PDFs only), review every profile field against the CV, including contact details, career history, education, skills, achievements, certifications, languages and any explicitly stated preferences, then choose what to update. Missing CV values stay unchanged.
 - Delete individual saved search chats from the sidebar.
 - Review per-job match details, matched skills, gaps, and ATS readiness.
 - Edit, approve, or reject a job-specific CV draft built only from profile content.
