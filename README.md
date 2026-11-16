@@ -66,7 +66,7 @@ The free remote feeds carry few on-site or hybrid jobs outside Germany. For thos
 - Filter the downloaded listings by work mode, location, skills, and profile preferences without sending the CV or profile to job sites.
 - Create an account and log in on any device (Supabase mode), or a local demo account whose password hash stays in this browser (default when Supabase is not configured).
 - Edit a candidate profile and preferences; add and remove skills.
-- Choose a PDF CV (up to 1 MB; DOCX and other formats are not accepted). Hireloom first asks whether you want it to read the CV: if you say no, nothing is parsed, sent or stored and you fill in your profile by hand. If you say yes, the PDF is parsed (text-based PDFs only), review every profile field against the CV, including contact details, career history, education, skills, achievements, certifications, languages and any explicitly stated preferences, then choose what to update. Missing CV values stay unchanged.
+- Choose a PDF CV (up to 1 MB; DOCX and other formats are not accepted). Hireloom first asks whether you want it to read the CV: if you say no, nothing is parsed, sent or stored and you fill in your profile by hand. If you say yes, the PDF is parsed (text-based PDFs only) and you review every profile field against the CV, including contact details, career history, education, skills, achievements, certifications, languages and any explicitly stated preferences, then choose what to update. Missing CV values stay unchanged.
 - Delete individual saved search chats from the sidebar.
 - Review per-job match details, matched skills, gaps, and ATS readiness.
 - Edit, approve, or reject a job-specific CV draft built only from profile content.
