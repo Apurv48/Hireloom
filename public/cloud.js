@@ -4,7 +4,7 @@
   const cfg = window.HIRELOOM_SUPABASE || {};
   const lib = window.supabase;
   if (!(cfg.url && cfg.anonKey && lib && typeof lib.createClient === 'function')) {
-    window.HireloomCloud = { enabled: false };
+    window.HireloomCloud = { enabled: false, unavailable: Boolean(cfg.url || cfg.anonKey) };
     return;
   }
 
@@ -17,8 +17,14 @@
   const MIME = { pdf: 'application/pdf' }; // CV uploads are PDF only
   const cloud = { enabled: true, MAX_CV_BYTES, onSyncError: null };
   let timer = null;
-  let builder = null;
+  let pending = null;
+  let writing = null;
   let lastErrorAt = 0;
+  sb.auth.onAuthStateChange((_event, session) => {
+    const owner = session?.user?.id || null;
+    if (pending && pending.owner !== owner) pending = null;
+    if (cloud.onUserChange) cloud.onUserChange(owner);
+  });
 
   function friendly(error, fallback) {
     const text = String((error && error.message) || '');
@@ -91,46 +97,59 @@
   };
 
   // Local scope only, so signing out here does not sign the user out of their other devices.
-  cloud.signOut = async () => { setFlag(false); try { await sb.auth.signOut({ scope: 'local' }); } catch (error) { /* already signed out */ } };
+  cloud.signOut = async () => {
+    const { error } = await sb.auth.signOut({ scope: 'local' });
+    if (error) throw error;
+    setFlag(false);
+  };
 
-  cloud.pull = async () => {
+  cloud.pull = async (owner) => {
     const user = await cloud.getUser();
-    if (!user) throw new Error('Not signed in');
+    if (!user || user.id !== owner) throw new Error('Account changed. Please sign in again.');
     const { data, error } = await sb.from(TABLE).select('state').eq('user_id', user.id).maybeSingle();
     if (error) throw error;
     return data ? data.state : null;
   };
 
-  cloud.flush = async () => {
-    if (timer) clearTimeout(timer);
+  cloud.flush = () => {
+    clearTimeout(timer);
     timer = null;
-    const build = builder;
-    builder = null;
-    if (!build) return;
-    try {
-      const user = await cloud.getUser();
-      if (!user) return;
-      const { error } = await sb.from(TABLE).upsert({ user_id: user.id, state: build(), updated_at: new Date().toISOString() });
-      if (error) throw error;
-    } catch (error) {
-      console.warn('Hireloom sync failed:', error && error.message);
-      if (cloud.onSyncError && Date.now() - lastErrorAt > 60000) { lastErrorAt = Date.now(); cloud.onSyncError(error); }
-    }
+    if (writing) return writing;
+    if (!pending) return Promise.resolve();
+    writing = (async () => {
+      while (pending) {
+        const entry = pending;
+        const user = await cloud.getUser();
+        if (!user || user.id !== entry.owner) throw new Error('Workspace owner changed');
+        const { error } = await sb.from(TABLE).upsert({ user_id: entry.owner, state: entry.state, updated_at: new Date().toISOString() });
+        if (error) throw error;
+        if (pending === entry) pending = null;
+      }
+    })().finally(() => { writing = null; });
+    return writing;
   };
 
-  // Saves are debounced: many quick edits become one write.
-  cloud.queuePush = (build) => {
-    builder = build;
+  function backgroundSave() {
+    cloud.flush().catch(error => {
+      if (cloud.onSyncError && Date.now() - lastErrorAt > 60000) {
+        lastErrorAt = Date.now();
+        cloud.onSyncError(error);
+      }
+    });
+  }
+  cloud.queuePush = (build, owner) => {
+    pending = { owner, state: structuredClone(build()) };
     if (timer) clearTimeout(timer);
-    timer = setTimeout(cloud.flush, 2000);
+    timer = setTimeout(backgroundSave, 2000);
   };
-  window.addEventListener('pagehide', () => { cloud.flush(); });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloud.flush(); });
+  window.addEventListener('online', backgroundSave);
+  window.addEventListener('pagehide', backgroundSave);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') backgroundSave(); });
 
   // One CV per user: a new upload replaces the previous file.
-  cloud.uploadCv = async (file) => {
+  cloud.uploadCv = async (file, owner) => {
     const user = await cloud.getUser();
-    if (!user) throw new Error('Not signed in');
+    if (!user || user.id !== owner) throw new Error('Account changed. Please sign in again.');
     const ext = extensionOf(file.name);
     if (!MIME[ext]) throw new Error('Only PDF CVs are accepted. Save your CV as a PDF and upload that file.');
     if (file.size > MAX_CV_BYTES) throw new Error('The CV must be 1 MB or smaller.');
@@ -151,16 +170,18 @@
   cloud.deleteAccount = async () => {
     if (timer) clearTimeout(timer);
     timer = null;
-    builder = null;
+    if (writing) await writing;
     const user = await cloud.getUser();
     if (!user) throw new Error('Not signed in');
-    const { data: files } = await sb.storage.from(BUCKET).list(user.id);
+    const { data: files, error: listError } = await sb.storage.from(BUCKET).list(user.id);
+    if (listError) throw listError;
     if (files && files.length) {
       const { error } = await sb.storage.from(BUCKET).remove(files.map((file) => `${user.id}/${file.name}`));
       if (error) throw error;
     }
     const { error } = await sb.rpc('delete_my_account');
     if (error) throw error;
+    pending = null;
     await cloud.signOut();
   };
 

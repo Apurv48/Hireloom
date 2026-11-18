@@ -11,6 +11,7 @@ import threading
 import time
 import unicodedata
 from datetime import datetime, timezone
+from functools import lru_cache
 from xml.sax.saxutils import escape
 from email import policy
 from email.parser import BytesParser
@@ -18,8 +19,7 @@ from html import unescape
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 
@@ -40,14 +40,9 @@ SKILLS = [
 ]
 
 FEED_CACHE: dict[str, tuple[float, list[dict[str, object]], str]] = {}
-FEED_CACHE_LOCKS = {
-    "arbeitnow": threading.Lock(), "remotive": threading.Lock(), "jobicy": threading.Lock(),
-    "himalayas": threading.Lock(), "remoteok": threading.Lock(),
-}
-FEED_CACHE_TTLS = {
-    "arbeitnow": 30 * 60, "remotive": 6 * 60 * 60, "jobicy": 4 * 60 * 60,
-    "himalayas": 24 * 60 * 60, "remoteok": 6 * 60 * 60, "adzuna": 30 * 60,
-}
+# Public, employer-managed career boards. Search queries and CV data stay off these requests.
+CAREER_BOARDS = {"twilio": "Twilio", "rubrik": "Rubrik", "gitlab": "GitLab"}
+FEED_CACHE_LOCKS = {board: threading.Lock() for board in CAREER_BOARDS}
 FEED_USER_AGENT = "HireloomMVP/1.0 (local personal job search)"
 
 
@@ -88,7 +83,11 @@ def plain_text(value: object, limit: int = 2400) -> str:
 
 def safe_https_url(value: object) -> str:
     url = str(value or "").strip()
-    return url if urlsplit(url).scheme == "https" and urlsplit(url).netloc else ""
+    try:
+        parsed = urlsplit(url)
+        return url if parsed.scheme == "https" and parsed.hostname and not parsed.username and not parsed.password else ""
+    except ValueError:
+        return ""
 
 
 def fetch_json_value(url: str) -> object:
@@ -158,14 +157,15 @@ COUNTRIES = sorted(set(COUNTRY_CODES.values()) | {
 })
 
 
+@lru_cache(maxsize=1024)
 def eligibility_for(location: str, remote: bool) -> list[str]:
     lowered = location.lower()
     normalized = normalize_location(location)
-    found = [country for country in COUNTRIES if country.lower() in lowered]
+    found = [country for country in COUNTRIES if f" {country.lower()} " in f" {normalized} "]
     for country, aliases in LOCATION_ALIASES.items():
         if country in COUNTRIES and any(f" {normalize_location(alias)} " in f" {normalized} " for alias in aliases):
             found.append(country)
-    if "europe" in lowered:
+    if re.search(r"\beurope\b", lowered):
         found.append("Europe")
     if "worldwide" in lowered or "anywhere" in lowered or "global" in lowered:
         found.append("Worldwide")
@@ -177,260 +177,62 @@ def eligibility_for(location: str, remote: bool) -> list[str]:
 
 
 def job_mode(is_remote: bool, text: str) -> str:
-    if is_remote:
-        return "Remote"
     if re.search(r"\bhybrid\b", text, re.I):
         return "Hybrid"
+    if is_remote:
+        return "Remote"
     if re.search(r"\b(on[- ]?site|in[- ]office|office based)\b", text, re.I):
         return "Onsite"
-    return "Flexible"
+    return "Not listed"
 
 
-def normalize_job(record: dict[str, object], provider: str) -> dict[str, object] | None:
-    if provider == "Arbeitnow":
-        title = str(record.get("title") or "").strip()
-        company = str(record.get("company_name") or "Company not listed").strip()
-        location = str(record.get("location") or ("Remote" if record.get("remote") else "Location not listed")).strip()
-        description = plain_text(record.get("description"))
-        external_url = safe_https_url(record.get("url"))
-        remote = bool(record.get("remote"))
-        tags = record.get("tags") if isinstance(record.get("tags"), list) else []
-        slug = str(record.get("slug") or external_url or title)
-        posted, published = posted_label(record.get("created_at"))
-        source_url = "https://www.arbeitnow.com/"
-        job_id = "arbeitnow-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
-    elif provider == "Remotive":
-        title = str(record.get("title") or "").strip()
-        company = str(record.get("company_name") or "Company not listed").strip()
-        location = str(record.get("candidate_required_location") or "Remote location not listed").strip()
-        description = plain_text(record.get("description"))
-        external_url = safe_https_url(record.get("url"))
-        remote = True
-        tags = [record.get("category", ""), record.get("job_type", "")]
-        slug = str(record.get("id") or external_url or title)
-        posted, published = posted_label(record.get("publication_date"))
-        source_url = "https://remotive.com/"
-        job_id = "remotive-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
-    elif provider == "Jobicy":
-        title = str(record.get("jobTitle") or "").strip()
-        company = str(record.get("companyName") or "Company not listed").strip()
-        location = str(record.get("jobGeo") or "Worldwide").strip()
-        description = plain_text(record.get("jobDescription") or record.get("jobExcerpt"))
-        external_url = safe_https_url(record.get("url"))
-        remote = True
-        tags = record.get("jobIndustry") if isinstance(record.get("jobIndustry"), list) else []
-        job_types = record.get("jobType") if isinstance(record.get("jobType"), list) else []
-        tags = [*tags, *job_types]
-        slug = str(record.get("id") or external_url or title)
-        posted, published = posted_label(record.get("pubDate"))
-        source_url = "https://jobicy.com/jobs-rss-feed"
-        job_id = "jobicy-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
-    elif provider == "Himalayas":
-        title = str(record.get("title") or "").strip()
-        company = str(record.get("companyName") or "Company not listed").strip()
-        restrictions = record.get("locationRestrictions") if isinstance(record.get("locationRestrictions"), list) else []
-        eligible_locations = [COUNTRY_CODES.get(str(item).strip().upper(), str(item).strip()) for item in restrictions if str(item).strip()]
-        location = ", ".join(eligible_locations) if eligible_locations else "Worldwide"
-        description = plain_text(record.get("description") or record.get("excerpt"))
-        external_url = safe_https_url(record.get("applicationLink"))
-        remote = True
-        categories = record.get("categories") if isinstance(record.get("categories"), list) else []
-        tags = categories + [record.get("employmentType", ""), record.get("seniority", "")]
-        slug = str(record.get("guid") or external_url or title)
-        posted, published = posted_label(record.get("pubDate"))
-        source_url = "https://himalayas.app/"
-        job_id = "himalayas-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
-    elif provider == "Remote OK":
-        title = str(record.get("position") or record.get("title") or "").strip()
-        company = str(record.get("company") or "Company not listed").strip()
-        location = str(record.get("location") or "Worldwide").strip()
-        description = plain_text(record.get("description"))
-        external_url = safe_https_url(record.get("url") or record.get("apply_url"))
-        remote = True
-        tags = record.get("tags") if isinstance(record.get("tags"), list) else []
-        slug = str(record.get("id") or record.get("slug") or external_url or title)
-        posted, published = posted_label(record.get("date"))
-        source_url = "https://remoteok.com/"
-        job_id = "remoteok-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
-    elif provider == "Adzuna":
-        title = str(record.get("title") or "").strip()
-        company_info = record.get("company") if isinstance(record.get("company"), dict) else {}
-        company = str(company_info.get("display_name") or "Company not listed").strip()
-        place = record.get("location") if isinstance(record.get("location"), dict) else {}
-        location = str(place.get("display_name") or "Location not listed").strip()
-        country = str(record.get("_country") or "").strip()
-        if country and country.lower() not in location.lower():
-            location = f"{location}, {country}"
-        description = plain_text(record.get("description"))
-        external_url = safe_https_url(record.get("redirect_url"))
-        remote = bool(re.search(r"\bremote\b|work from home", f"{title} {location}", re.I))
-        category = record.get("category") if isinstance(record.get("category"), dict) else {}
-        tags = [category.get("label", ""), record.get("contract_type", ""), record.get("contract_time", "")]
-        slug = str(record.get("id") or external_url or title)
-        posted, published = posted_label(record.get("created"))
-        source_url = "https://www.adzuna.com/"
-        job_id = "adzuna-" + re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")[:90]
-    else:
-        return None
-    if not title or not external_url:
-        return None
-    full_text = f"{title} {company} {location} {description} {' '.join(str(item) for item in tags)}"
-    skills = known_skills(full_text)
-    sentences = [part.strip(" •\t\r\n") for part in re.split(r"(?<=[.!?])\s+|\s+[•·]\s+", description) if len(part.strip()) > 22]
-    highlights = sentences[:3] or [f"Review the {skill} requirements in the original listing." for skill in skills[:3]]
-    mode = job_mode(remote, full_text)
-    return {
-        "id": job_id, "title": title, "company": company, "location": location, "mode": mode,
-        "eligible": eligibility_for(location, remote), "languages": [], "source": provider,
-        "sourceUrl": source_url, "route": "External listing", "posted": posted, "published": published,
-        "years": "Not listed", "match": 65, "skills": skills, "description": description or "Open the original listing for the complete job description.",
-        "highlights": highlights, "reason": "Live listing matched your search. Review the original posting and eligibility before applying.",
-        "url": external_url, "isLive": True,
-    }
-
-
-def load_arbeitnow() -> list[dict[str, object]]:
-    payload = fetch_json("https://www.arbeitnow.com/api/job-board-api")
-    records = payload.get("data") if isinstance(payload.get("data"), list) else []
-    return [job for record in records if isinstance(record, dict) if (job := normalize_job(record, "Arbeitnow"))]
-
-
-def load_remotive() -> list[dict[str, object]]:
-    # Download a small broad feed on a long cache so each search stays local and respects Remotive's API guidance.
-    url = "https://remotive.com/api/remote-jobs?" + urlencode({"limit": 100})
-    payload = fetch_json(url)
-    records = payload.get("jobs") if isinstance(payload.get("jobs"), list) else []
-    return [job for record in records if isinstance(record, dict) if (job := normalize_job(record, "Remotive"))]
-
-
-def load_jobicy() -> list[dict[str, object]]:
-    jobs: list[dict[str, object]] = []
-    cursor = ""
-    for _ in range(3):
-        params: dict[str, object] = {"count": 100}
-        if cursor:
-            params["cursor"] = cursor
-        payload = fetch_json("https://jobicy.com/api/jobs?" + urlencode(params))
-        if payload.get("success") is False:
-            raise ValueError("Jobicy could not return listings.")
-        records = payload.get("jobs") if isinstance(payload.get("jobs"), list) else []
-        jobs.extend(job for record in records if isinstance(record, dict) if (job := normalize_job(record, "Jobicy")))
-        cursor = str(payload.get("nextCursor") or "")
-        if not cursor:
-            break
-    return jobs
-
-
-def load_himalayas() -> list[dict[str, object]]:
-    jobs: list[dict[str, object]] = []
-    cursor = ""
-    for _ in range(5):
-        params: dict[str, object] = {"limit": 20}
-        if cursor:
-            params["cursor"] = cursor
-        payload = fetch_json("https://himalayas.app/jobs/api?" + urlencode(params))
-        records = payload.get("jobs") if isinstance(payload.get("jobs"), list) else []
-        jobs.extend(job for record in records if isinstance(record, dict) if (job := normalize_job(record, "Himalayas")))
-        cursor = str(payload.get("nextCursor") or "")
-        if not cursor:
-            break
-    return jobs
-
-
-def load_remoteok() -> list[dict[str, object]]:
-    payload = fetch_json_value("https://remoteok.com/api")
-    records = payload if isinstance(payload, list) else payload.get("jobs", []) if isinstance(payload, dict) else []
-    if not isinstance(records, list):
-        return []
-    return [job for record in records if isinstance(record, dict) if (job := normalize_job(record, "Remote OK"))][:500]
-
-
-# Adzuna covers on-site and hybrid roles in India and many other countries. It needs a free key
-# (ADZUNA_APP_ID / ADZUNA_APP_KEY); without one this source is skipped. Search is per country.
-ADZUNA_COUNTRY_CODES = {
-    "India": "in", "United Kingdom": "gb", "United States": "us", "Canada": "ca", "Australia": "au",
-    "New Zealand": "nz", "Singapore": "sg", "South Africa": "za", "Germany": "de", "France": "fr",
-    "Netherlands": "nl", "Italy": "it", "Austria": "at", "Poland": "pl", "Brazil": "br", "Mexico": "mx",
-}
-ADZUNA_DEFAULT_COUNTRIES = ("in", "gb", "us", "ca", "au", "sg", "za")
-ADZUNA_MAX_TARGETS = 8
-
-
-def adzuna_credentials() -> tuple[str, str] | None:
-    app_id = os.environ.get("ADZUNA_APP_ID", "").strip()
-    app_key = os.environ.get("ADZUNA_APP_KEY", "").strip()
-    return (app_id, app_key) if app_id and app_key else None
-
-
-def load_adzuna(code: str, what: str, where: str) -> list[dict[str, object]]:
-    credentials = adzuna_credentials()
-    if not credentials:
-        return []
-    params: dict[str, object] = {
-        "app_id": credentials[0], "app_key": credentials[1], "results_per_page": 50,
-        "max_days_old": 45, "content-type": "application/json",
-    }
-    if what:
-        params["what"] = what
-    if where:
-        params["where"] = where
-    payload = fetch_json(f"https://api.adzuna.com/v1/api/jobs/{code}/search/1?" + urlencode(params))
-    records = payload.get("results") if isinstance(payload.get("results"), list) else []
-    country = COUNTRY_CODES.get(code.upper(), "")
-    jobs: list[dict[str, object]] = []
-    for record in records:
-        if isinstance(record, dict):
-            record["_country"] = country
-            if job := normalize_job(record, "Adzuna"):
-                jobs.append(job)
-    return jobs
-
-
-def adzuna_targets(query: str, location_hint: str) -> list[tuple[str, str]]:
-    """Which (country code, city) pairs to ask Adzuna for: the places named in the search first,
-    then, when the search names none, the default markets."""
-    explicit = query_location_terms(query)
-    found: dict[str, dict[str, object]] = {}
-    for term in explicit or split_location_terms(location_hint):
-        wanted = normalize_location(term)
-        country = next((name for name, aliases in LOCATION_ALIASES.items() if any(normalize_location(alias) == wanted for alias in aliases)), "")
-        code = ADZUNA_COUNTRY_CODES.get(country)
-        if not code:
+def load_career_board(board: str) -> list[dict[str, object]]:
+    company = CAREER_BOARDS[board]
+    payload = fetch_json(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true")
+    if not isinstance(payload.get("jobs"), list):
+        raise ValueError("Invalid career board response")
+    jobs = []
+    for record in payload["jobs"]:
+        if not isinstance(record, dict) or not isinstance(record.get("id"), int):
             continue
-        entry = found.setdefault(code, {"whole_country": False, "cities": []})
-        normalized_country = normalize_location(country)
-        if wanted == normalized_country or wanted in COUNTRY_TERM_ALIASES.get(normalized_country, set()):
-            entry["whole_country"] = True
-        else:
-            entry["cities"].append(term)  # type: ignore[union-attr]
-    targets = [(code, "" if entry["whole_country"] or not entry["cities"] else str(entry["cities"][0])) for code, entry in found.items()]  # type: ignore[index]
-    if not explicit:
-        configured = [part.strip().lower() for part in os.environ.get("ADZUNA_COUNTRIES", "").split(",") if part.strip()]
-        for code in configured or ADZUNA_DEFAULT_COUNTRIES:
-            if code not in found:
-                targets.append((code, ""))
-    return targets[:ADZUNA_MAX_TARGETS]
+        title = plain_text(record.get("title"), 240)
+        url = safe_https_url(record.get("absolute_url"))
+        if not title or not url:
+            continue
+        place = record.get("location") or {}
+        location = plain_text(place.get("name"), 500) if isinstance(place, dict) else ""
+        description = plain_text(unescape(record.get("content") or ""), 6000)
+        mode_text = f"{title} {location}"
+        remote = bool(re.search(r"\bremote\b|work from home", mode_text, re.I))
+        mode = job_mode(remote, mode_text)
+        posted, published = posted_label(record.get("first_published"))
+        jobs.append({
+            "id": f"{board}-{record['id']}", "title": title, "company": company,
+            "location": location or "Location not listed", "mode": mode,
+            "eligible": eligibility_for(location, remote), "languages": [],
+            "source": company, "sourceUrl": f"https://job-boards.greenhouse.io/{board}",
+            "route": "Company career page", "url": url, "posted": posted, "published": published,
+            "years": "Not listed", "match": 65, "skills": known_skills(f"{title} {description}"),
+            "description": description or "See the employer’s posting for details.",
+            "highlights": [], "reason": "Review the requirements and work location on the company career page.",
+            "isLive": True,
+        })
+    return jobs
 
 
-def cached_feed(name: str, loader) -> tuple[list[dict[str, object]], str, bool]:
-    lock = FEED_CACHE_LOCKS.setdefault(name, threading.Lock())
-    with lock:
-        cached = FEED_CACHE.get(name)
+def cached_feed(board: str) -> tuple[list[dict[str, object]], str, bool]:
+    with FEED_CACHE_LOCKS[board]:
+        cached = FEED_CACHE.get(board)
         now = time.monotonic()
-        cache_ttl = FEED_CACHE_TTLS.get(name.split(":", 1)[0], 30 * 60)
-        if cached and now - cached[0] < cache_ttl:
-            return cached[1], cached[2], True
+        if cached:
+            saved_at, jobs, error = cached
+            if now - saved_at < (60 if error else 1800):
+                return jobs, error, True
         try:
-            jobs = loader()
-            error = ""
-        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
-            jobs = cached[1] if cached else []
-            error = f"Could not refresh: {type(exc).__name__}" if cached else "Feed is temporarily unavailable."
-        FEED_CACHE[name] = (time.monotonic(), jobs, error)
-        if len(FEED_CACHE) > 300:  # per-search Adzuna entries must not grow without bound
-            for stale in sorted(FEED_CACHE, key=lambda key: FEED_CACHE[key][0])[:60]:
-                FEED_CACHE.pop(stale, None)
-                FEED_CACHE_LOCKS.pop(stale, None)
+            jobs, error = load_career_board(board), ""
+        except (OSError, ValueError, TimeoutError):
+            jobs, error = [], "Career page temporarily unavailable."
+        FEED_CACHE[board] = time.monotonic(), jobs, error
         return jobs, error, False
 
 
@@ -515,6 +317,7 @@ DEFAULT_MARKETS = (
 )
 
 
+@lru_cache(maxsize=4096)
 def normalize_location(value: object) -> str:
     normalized = unicodedata.normalize("NFKD", str(value or "").lower())
     return " ".join(re.sub(r"[^a-z0-9]+", " ", normalized.encode("ascii", "ignore").decode("ascii")).split())
@@ -582,10 +385,10 @@ def location_matches(job: dict[str, object], terms: list[str]) -> bool:
 
 def resolve_search(query: str, location_hint: str = "") -> tuple[list[str], list[str]]:
     """Return (places to match, keywords). A place named in the search wins. Otherwise the profile's
-    places are used together with the default markets."""
+    places are used. Default markets apply to an empty profile."""
     explicit = query_location_terms(query)
     profile_terms = [] if explicit else split_location_terms(location_hint)
-    locations = explicit or list(dict.fromkeys([*profile_terms, *DEFAULT_MARKETS]))
+    locations = explicit or profile_terms or list(DEFAULT_MARKETS)
     location_tokens = {token for term in (explicit or profile_terms) for token in re.findall(r"[a-z][a-z0-9+#.-]*", term.lower())}
     return locations, [token for token in job_search_tokens(query) if token not in location_tokens]
 
@@ -617,35 +420,14 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
 
 def search_live_jobs(query: str, location_hint: str = "") -> dict[str, object]:
     from concurrent.futures import ThreadPoolExecutor
-    providers = [
-        ("arbeitnow", load_arbeitnow, "Arbeitnow"), ("remotive", load_remotive, "Remotive"),
-        ("jobicy", load_jobicy, "Jobicy"), ("himalayas", load_himalayas, "Himalayas"),
-        ("remoteok", load_remoteok, "Remote OK"),
-    ]
-    adzuna: list[tuple[str, object, str]] = []
-    if adzuna_credentials():
-        _, keywords = resolve_search(query, location_hint)
-        what = " ".join(keywords[:6])
-        for code, city in adzuna_targets(query, location_hint):
-            adzuna.append((f"adzuna:{code}:{what}:{city}".lower(), (lambda c=code, w=what, t=city: load_adzuna(c, w, t)), "Adzuna"))
-    tasks = [*providers, *adzuna]
-    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
-        results = list(pool.map(lambda item: cached_feed(item[0], item[1]), tasks))
-    all_jobs: list[dict[str, object]] = []
-    sources: list[dict[str, object]] = []
-    adzuna_parts: list[tuple[list[dict[str, object]], str, bool]] = []
-    for task, result in zip(tasks, results):
-        if task[2] == "Adzuna":
-            adzuna_parts.append(result)
-            all_jobs.extend(result[0])
-            continue
-        items, error, from_cache = result
-        sources.append({"name": task[2], "ok": bool(items) or not error, "count": len(items), "cached": from_cache, "error": error})
+
+    with ThreadPoolExecutor(max_workers=len(CAREER_BOARDS)) as pool:
+        results = list(pool.map(cached_feed, CAREER_BOARDS))
+    all_jobs = []
+    sources = []
+    for company, (items, error, cached) in zip(CAREER_BOARDS.values(), results):
+        sources.append({"name": company, "ok": not error, "count": len(items), "cached": cached, "error": error})
         all_jobs.extend(items)
-    if adzuna_parts:
-        errors = sorted({part[1] for part in adzuna_parts if part[1]})
-        total = sum(len(part[0]) for part in adzuna_parts)
-        sources.append({"name": "Adzuna", "ok": total > 0 or not errors, "count": total, "cached": all(part[2] for part in adzuna_parts), "error": "; ".join(errors)})
     unique = {str(job["id"]): job for job in all_jobs}
     return {"jobs": filter_live_jobs(list(unique.values()), query, location_hint), "sources": sources}
 
@@ -977,7 +759,7 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 self.send_json(200, search_live_jobs(query, location_hint))
             except Exception:
-                self.send_json(502, {"error": "The live job feeds could not be searched right now."})
+                self.send_json(502, {"error": "Company career pages could not be searched right now."})
             return
         super().do_GET()
 
@@ -989,11 +771,9 @@ class Handler(SimpleHTTPRequestHandler):
         if path != "/api/parse-cv":
             self.send_error(404)
             return
-        content_length = int(self.headers.get("Content-Length", "0"))
-        if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
-            self.send_json(413, {"error": "The CV upload must be 1 MB or smaller."})
+        body = self.read_body(MAX_REQUEST_BYTES, "The CV upload must be 1 MB or smaller.")
+        if body is None:
             return
-        body = self.rfile.read(content_length)
         content_type = self.headers.get("Content-Type", "")
         headers = BytesParser(policy=policy.default).parsebytes(
             f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode() + body
@@ -1013,15 +793,27 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, RuntimeError) as exc:
             self.send_json(422, {"error": str(exc)})
 
+    def read_body(self, limit: int, size_error: str) -> bytes | None:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0:
+                raise ValueError
+        except ValueError:
+            self.send_json(400, {"error": "A request body with a valid length is required."})
+            return None
+        if length > limit:
+            self.send_json(413, {"error": size_error})
+            return None
+        return self.rfile.read(length)
+
     def render_cv(self) -> None:
-        content_length = int(self.headers.get("Content-Length", "0"))
-        if content_length <= 0 or content_length > 256 * 1024:
-            self.send_json(413, {"error": "The CV draft is too large to render."})
+        body = self.read_body(256 * 1024, "The CV draft is too large to render.")
+        if body is None:
             return
         try:
-            payload = json.loads(self.rfile.read(content_length))
-            if not isinstance(payload, dict):
-                raise ValueError("Expected CV data as a JSON object.")
+            payload = json.loads(body)
+            if not isinstance(payload, dict) or not isinstance(payload.get('version'), dict):
+                raise ValueError("Expected an approved CV version.")
             document = make_pdf(payload)
         except RuntimeError as exc:
             self.send_json(500, {"error": str(exc)})

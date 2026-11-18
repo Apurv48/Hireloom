@@ -42,13 +42,34 @@ function initialState() {
       { id:'seed-ml', title:'Junior ML roles, English speaking', date:'Last week', query:'Junior ML roles, English speaking', hasSearch:true, turns:[makeSearchTurn('Junior ML roles, English speaking','seed-ml-turn-1')] }
     ],
     activeChatId:'seed-remote', view:'login', selectedJobId:null, profileTab:'about', settingsTab:'account', trackerFilter:'All',
-    applications:[], savedJobs:[], cvVersions:[], settings:{newMatches:true, reminders:true, autoApply:false},
+    applications:[], savedJobs:[], pinnedJobs:[], cvVersions:[], settings:{newMatches:true, reminders:true, autoApply:false},
     tailoringJobId:null, tailoredEdits:null, sidebarOpen:false, loggedOut:true
   };
 }
 
-function loadState() {
-  try { return normalizeState(JSON.parse(localStorage.getItem(STORAGE_KEY))); } catch { return initialState(); }
+let workspaceKey = null;
+let workspaceUserId = null;
+function localWorkspaceKey(email) { return STORAGE_KEY + ':local:' + normalizeEmail(email); }
+function newWorkspace(name, email) {
+  const workspace=initialState();
+  workspace.profile={
+    ...defaultProfile(), name, email, phone:'', title:'', summary:'', education:'', experience:[],
+    skills:[], roles:[], location:'', interestedLocation:'', languages:'', workModes:[], relocation:'',
+    salary:'', currentSalary:'', cvName:'', cvStatus:''
+  };
+  workspace.chats=[{id:crypto.randomUUID(),title:'New search',date:'Today',query:'',hasSearch:false,turns:[]}];
+  workspace.activeChatId=workspace.chats[0].id;
+  return workspace;
+}
+function loadLocalWorkspace(account) {
+  workspaceKey = localWorkspaceKey(account.email);
+  const saved = localStorage.getItem(workspaceKey);
+  if (saved) return normalizeState(JSON.parse(saved));
+  const legacy = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+  if (authData.accounts.length === 1 && normalizeEmail(legacy?.profile?.email) === account.email) {
+    return normalizeState(legacy);
+  }
+  return newWorkspace(account.name, account.email);
 }
 function normalizeState(parsed) {
     if (!parsed || !parsed.profile || !Array.isArray(parsed.chats)) return initialState();
@@ -64,9 +85,10 @@ function normalizeState(parsed) {
     for(const [key,value] of Object.entries(oldSample)) if(parsed.profile[key]===value) profile[key]=fresh[key];
     return { ...initialState(), ...parsed, chats, view:'login', loggedOut:true, profile, settings:{ ...initialState().settings, ...(parsed.settings || {}) } };
 }
-let state = loadState();
+let state = initialState();
 let session=false;
 let pendingCvFile=null;
+let cvRequest=0;
 let pendingConsentFile=null;
 function loadAuth() {
   try {
@@ -104,12 +126,15 @@ function sameHash(a,b) {
 }
 
 function persist() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-  catch { toast('Could not save this change in your browser storage.', 'error'); }
-  if (cloud.enabled && session) cloud.queuePush(syncSnapshot);
+  if (!session) return;
+  if (workspaceKey) {
+    try { localStorage.setItem(workspaceKey, JSON.stringify(state)); }
+    catch { toast('Browser storage is full or unavailable. Export your workspace to keep a copy.', 'error'); }
+  }
+  if (cloud.enabled && workspaceUserId) cloud.queuePush(syncSnapshot, workspaceUserId);
 }
 function getChat() { return state.chats.find((chat) => chat.id === state.activeChatId) || state.chats[0]; }
-function getJob(id) { return jobs.find((job) => job.id === id) || liveSearch.jobs.find((job) => job.id === id) || [...liveSearchByTurn.values()].flatMap((search) => search.jobs || []).find((job) => job.id === id) || state.chats.flatMap((chat)=>chat.turns||[]).flatMap((turn)=>turn.jobs||[]).find((job)=>job.id===id) || (state.pinnedJobs||[]).find((job)=>job.id===id); }
+function getJob(id) { return jobs.find((job) => job.id === id) || liveSearch.jobs.find((job) => job.id === id) || [...liveSearchByTurn.values()].flatMap((search) => search.jobs || []).find((job) => job.id === id) || state.chats.flatMap((chat)=>chat.turns||[]).flatMap((turn)=>turn.jobs||[]).find((job)=>job.id===id) || state.pinnedJobs.find(job=>job.id===id); }
 function normalizeSkill(skill) {
   const aliases = { js:'JavaScript', javascript:'JavaScript', 'data pipelines':'Data pipelines', 'rest apis':'REST APIs', api:'APIs', 'machine learning':'Machine learning', ml:'Machine learning', 'product analytics':'Product analytics' };
   return aliases[String(skill).trim().toLowerCase()] || String(skill).trim();
@@ -173,10 +198,6 @@ const DEFAULT_MARKETS=['India','United States','United Kingdom','Canada','Austra
 function effectiveLocationTerms(query) {
   return queryLocationTerms(query).length?queryLocationTerms(query):profileLocationTerms();
 }
-function marketLocationTerms(query) {
-  const explicit=queryLocationTerms(query);
-  return explicit.length?explicit:[...new Set([...profileLocationTerms(),...DEFAULT_MARKETS])];
-}
 function jobCountry(job) {
   const place=` ${normalizedLocation(job.location)} `;
   const hits=locationAliases.filter(([name])=>!['Worldwide','European Union','Europe'].includes(name)).map(([name,aliases])=>[name,Math.min(...[name,...aliases].map((alias)=>{const at=place.indexOf(` ${normalizedLocation(alias)} `);return at<0?Infinity:at;}))]).filter(([,at])=>at!==Infinity).sort((a,b)=>a[1]-b[1]);
@@ -211,7 +232,7 @@ function locationMatches(job, terms) {
 }
 function profileAllowsJob(job, locationTerms) {
   const p=state.profile;
-  if(p.workModes?.length && job.mode!=='Flexible' && !p.workModes.includes(job.mode))return false;
+  if(p.workModes?.length && !['Flexible','Not listed'].includes(job.mode) && !p.workModes.includes(job.mode))return false;
   if(!locationMatches(job,locationTerms))return false;
   const languages=(String(p.languages||'').match(/English|German|French|Spanish|Hindi|Italian|Dutch/gi)||[]).map((value)=>value.toLowerCase());
   if(languages.length && job.languages?.length && !job.languages.some((language)=>languages.includes(language.toLowerCase())))return false;
@@ -238,8 +259,8 @@ function jobsForQuery(query,catalogOverride) {
   const q = String(query || '').toLowerCase();
   const catalog=Array.isArray(catalogOverride)?catalogOverride:jobs;
   const mode = q.includes('remote') ? 'Remote' : q.includes('hybrid') ? 'Hybrid' : q.includes('onsite') || q.includes('on-site') ? 'Onsite' : null;
-  const locations=effectiveLocationTerms(query), marketTerms=marketLocationTerms(query);
-  const language = ['german','english','french','spanish'].find((lang) => q.includes(lang));
+  const locations=effectiveLocationTerms(query), marketTerms=locations.length?locations:DEFAULT_MARKETS;
+  const language = ['german','english','french','spanish','hindi'].find(lang => tokensForSearch(q).includes(lang));
   const locationTokens=new Set(locations.flatMap(tokensForSearch));
   let tokens = tokensForSearch(query).filter((word) => !locationTokens.has(word) && !['remote','hybrid','onsite','on','site','in','the','and','with','jobs','job','roles','role','years','year','english','german','french','spanish','speaking','junior','senior'].includes(word));
   if (q.includes('junior')) tokens.push('junior');
@@ -271,7 +292,7 @@ function updateShell() {
   $('#menu-email').textContent = p.email || 'No email added';
   $('#avatar-menu-button').textContent = initials(p.name);
   $('#tracker-count').textContent = state.applications.length;
-  $$('.nav-link').forEach((button) => button.classList.toggle('active', (state.view === 'tracker' && button.dataset.nav === 'tracker') || (state.view !== 'tracker' && button.dataset.nav === 'chat')));
+  $$('.nav-link').forEach((button) => button.classList.toggle('active', button.dataset.nav === (['tracker','saved'].includes(state.view) ? state.view : 'chat')));
   $('#account-menu').classList.add('hidden');
   $$('.chat-item').forEach((button) => button.classList.toggle('active', button.dataset.chatId === state.activeChatId));
   $('#chat-list').innerHTML = state.chats.map((chat) => `<div class="chat-row"><button class="chat-item ${chat.id === state.activeChatId ? 'active' : ''}" data-chat-id="${esc(chat.id)}" title="${esc(chat.title)}">${esc(chat.title)}<small>${esc(chat.date || 'Today')}</small></button><button class="chat-delete-button" data-action="delete-chat" data-id="${esc(chat.id)}" aria-label="Delete chat: ${esc(chat.title)}" title="Delete chat">×</button></div>`).join('');
@@ -281,7 +302,26 @@ function render() {
   updateShell();
   const loggedOut=state.view==='login';
   $('.app-shell').classList.toggle('logged-out',loggedOut);
-  const content = $('#content'); content.innerHTML = renderView(); attachViewEvents();
+  const content=$('#content');
+  const sameChat=state.view==='chat' && content.dataset.chat===state.activeChatId;
+  const draft=sameChat && $('#search-query');
+  const edit=sameChat && $('.prompt-edit-input');
+  const editor=edit && editingPromptTurnId===edit.closest('[data-turn-id]')?.dataset.turnId
+    ? {value:edit.value,focused:document.activeElement===edit,start:edit.selectionStart,end:edit.selectionEnd} : null;
+  const keepDraft=draft && draft.value && voiceState.status==='idle' && !voiceState.queryDraft;
+  const text=keepDraft ? draft.value : '';
+  const focused=keepDraft && document.activeElement===draft;
+  const cursor=focused ? [draft.selectionStart,draft.selectionEnd] : null;
+  content.dataset.chat=state.view==='chat' ? state.activeChatId : '';
+  content.innerHTML=renderView();attachViewEvents();
+  const nextEdit=editor && $('.prompt-edit-input');
+  if(nextEdit){
+    nextEdit.value=editor.value;
+    nextEdit.dispatchEvent(new Event('input',{bubbles:true}));
+    if(editor.focused){nextEdit.focus();nextEdit.setSelectionRange(editor.start,editor.end);}
+  }
+  const next=$('#search-query');
+  if(text && next){next.value=text;if(focused){next.focus();next.setSelectionRange(...cursor);}}
 }
 
 function renderView() {
@@ -291,6 +331,7 @@ function renderView() {
     case 'profile': return renderProfile();
     case 'tailor': return renderTailoring();
     case 'tracker': return renderTracker();
+    case 'saved': return renderSavedJobs();
     case 'settings': return renderSettings();
     case 'plans': return renderPlans();
     case 'login': return authMode==='signup'?renderSignup():authMode==='forgot'?renderForgot():authMode==='verify'?renderVerify():authMode==='reset'?renderReset():renderLogin();
@@ -299,6 +340,7 @@ function renderView() {
 }
 
 function renderLogin() {
+  if(cloud.unavailable)return '<section class="logged-out-wrap"><div class="card logged-out-card"><h1>Sign-in is unavailable</h1><p>The account service could not load. Check your connection and reload this page.</p><button class="primary-button" data-action="reload">Reload</button></div></section>';
   return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Your next role, on your terms</span><h1>Welcome back</h1><p class="subhead">Log in to your Hireloom workspace.</p>${authMessage?`<p class="auth-message${authMessage.startsWith('✓')?' info':''}">${esc(authMessage)}</p>`:''}<form id="login-form" class="login-form"><div class="field"><label for="login-email">Email</label><input id="login-email" name="email" type="email" value="${esc(authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><div class="field"><label for="login-password">Password</label><div class="password-input"><input id="login-password" name="password" type="password" autocomplete="current-password" required /><button type="button" data-action="toggle-password" data-id="login-password">Show</button></div><button type="button" class="text-button forgot-link" data-action="show-forgot">Forgot password?</button></div><button class="primary-button login-submit">Log in</button></form><p class="login-switch">New to Hireloom? <button class="text-button" data-action="show-signup">Create an account</button></p>${cloud.enabled?'<p class="login-note"><strong>Your Hireloom account:</strong> log in on any device to pick up where you left off.</p></div><p class="logged-out-note">Your profile, searches and latest CV are saved privately to your account.</p>':'<p class="login-note"><strong>Local demo account:</strong> your email and salted password hash stay in this browser. No data is sent to an auth service.</p></div><p class="logged-out-note">Your profile and tracker remain saved in this browser between sessions.</p>'}</section>`;
 }
 
@@ -351,8 +393,10 @@ function renderConversationTurn(turn,index,count) {
   const editing=editingPromptTurnId===turn.id;
   const response=turn.response||(liveReady?'Here are the closest matching roles I found.':feedFailed?'I couldn’t reach the live job feeds for this search. You can retry it.':'I’m searching current listings for this request.');
   return `<section class="conversation-turn" data-turn-id="${esc(turn.id)}"><div class="message-row user">${editing?`<div class="user-prompt-edit"><textarea class="prompt-edit-input" data-original="${esc(turn.query)}" aria-label="Edit prompt">${esc(turn.query)}</textarea><div class="prompt-edit-actions"><button class="secondary-button" type="button" data-action="cancel-prompt-edit">Cancel</button><button class="primary-button" type="button" data-action="save-prompt-edit" data-turn-id="${esc(turn.id)}" disabled>Save</button></div></div>`:`<div class="user-prompt-content"><div class="message-bubble">${esc(turn.query)}</div><div class="prompt-actions"><button class="prompt-icon-button" type="button" data-action="copy-prompt" data-turn-id="${esc(turn.id)}" aria-label="Copy prompt" title="Copy prompt">⧉</button><button class="prompt-icon-button" type="button" data-action="edit-prompt" data-turn-id="${esc(turn.id)}" aria-label="Edit prompt" title="Edit prompt">✎</button><button class="prompt-icon-button" type="button" data-action="rerun-prompt" data-turn-id="${esc(turn.id)}" aria-label="Rerun prompt" title="Rerun prompt">↻</button></div></div>`}</div><div class="message-row assistant"><div class="assistant-response"><span class="assistant-name">Hireloom</span><div class="message-bubble assistant-bubble">${searching?'<span class="typing-indicator">Searching current listings…</span>':esc(response)}</div></div></div>
+    ${turn.searchQuery&&turn.searchQuery!==turn.query?`<p class="upload-note">Searching for ${esc(turn.searchQuery)}</p>`:''}
     ${searching?`<div class="empty-state turn-loading"><div class="empty-icon">⌕</div><h3>Finding roles for this prompt…</h3><p>Checking current listings while keeping your earlier messages here.</p></div>`:`<div class="result-head"><span><strong>${Number(turn.totalResults??results.length)} ${Number(turn.totalResults??results.length)===1?'role':'roles'}</strong> ${liveReady?`from live feeds${feedNames.length?` · ${esc(feedNames.join(' + '))}`:''}, ranked by fit`:feedFailed?'live feeds unavailable':'matching roles'}</span></div>
-    ${results.length?`<div class="result-list">${results.map((job)=>renderJobCard(job,job.fitScore)).join('')}</div>`:`<div class="empty-state"><div class="empty-icon">⌕</div><h3>${feedFailed?'Live job feeds are unavailable':liveReady?'No live listings matched this prompt':'No roles matched this prompt'}</h3><p>${feedFailed?'Check your internet connection and retry this prompt.':'Try another title, location, or work mode in a follow-up prompt.'}</p>${liveReady?'<span class="assistant-caption">Listings can change. Confirm details on the original source before applying.</span>':''}</div>`}`}
+    ${turn.totalResults>results.length&&turn.resultsCaptured?'<p class="upload-note">Showing a saved preview. Rerun this prompt for current openings.</p>':''}
+    ${results.length?`<div class="result-list">${results.map((job)=>renderJobCard(job,job.fitScore)).join('')}</div>`:turn.totalResults>0?'':`<div class="empty-state"><div class="empty-icon">⌕</div><h3>${feedFailed?'Live job feeds are unavailable':liveReady?'No live listings matched this prompt':'No roles matched this prompt'}</h3><p>${feedFailed?'Check your internet connection and retry this prompt.':'Try another title, location, or work mode in a follow-up prompt.'}</p>${liveReady?'<span class="assistant-caption">Listings can change. Confirm details on the original source before applying.</span>':''}</div>`}`}
   </section>`;
 }
 
@@ -384,14 +428,14 @@ function renderJobDetail() {
   const history = state.applications.find((app) => app.jobId === job.id);
   return `<button class="back-link" data-action="back-jobs">← Back to jobs</button>
     <div class="page-head"><div class="page-head-copy"><span class="eyebrow">${esc(job.source)} listing · ${job.isLive?'Apply on the source site':job.source==='Native'?'Apply on Hireloom':'Assisted apply'}</span><h1>${esc(job.title)}</h1><div class="detail-company">${esc(job.company)} <span class="dot">·</span> ${esc(job.location)} <span class="dot">·</span> Posted ${esc(job.posted)}</div><div class="tag-row detail-tags"><span class="tag primary">${esc(job.source)}</span><span class="tag ${job.mode==='Remote'?'green':''}">${esc(job.mode)}</span><span class="tag">${esc(job.years)}</span><span class="tag">Open to ${esc(job.eligible.join(', '))}</span></div></div><div class="page-head-actions"><button class="secondary-button" data-action="save-job" data-id="${job.id}">${state.savedJobs.includes(job.id)?'♥ Saved':'♡ Save job'}</button></div></div>
-    <div class="job-detail-grid"><article class="card job-detail-main"><div class="section-title"><h3>About this role</h3><span class="muted small">${esc(job.languages?.length?job.languages.join(' · '):'Language not listed')}</span></div><p class="subhead">${esc(job.description)}</p><div class="job-description"><h3>What you’ll work on</h3><ul>${job.highlights.map((item)=>`<li>${esc(item)}</li>`).join('')}</ul><h3>Why this may fit</h3><p>${esc(job.reason)}</p><div class="detail-summary">${job.isLive?`Found via <a href="${esc(job.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(job.source)}</a>. Verify the details and apply on the <a href="${esc(job.url)}" target="_blank" rel="noopener noreferrer">original listing</a>.`:`<strong>Application route:</strong> ${job.source==='Native'?'A demo application is saved to your Hireloom tracker. No application is sent to this company.':'Assisted apply is represented as a tracked handoff in this demo; no company site is opened.'}`}</div></div></article>
+    <div class="job-detail-grid"><article class="card job-detail-main"><div class="section-title"><h3>About this role</h3><span class="muted small">${esc(job.languages?.length?job.languages.join(' · '):'Language not listed')}</span></div><p class="subhead">${esc(job.description)}</p><div class="job-description"><h3>What you’ll work on</h3><ul>${job.highlights.map((item)=>`<li>${esc(item)}</li>`).join('')}</ul><h3>Why this may fit</h3><p>${esc(job.reason)}</p><div class="detail-summary">${job.isLive?`Found via <a href="${esc(job.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(job.source)}</a>. Use Track and apply to open the employer’s listing.`:`<strong>Application route:</strong> ${job.source==='Native'?'A demo application is saved to your Hireloom tracker. No application is sent to this company.':'Assisted apply is represented as a tracked handoff in this demo; no company site is opened.'}`}</div></div></article>
       <aside class="score-column"><div class="card score-card"><div class="score-card-head"><span>ATS readiness</span><strong>${readiness}<small>/100</small></strong></div><div class="score-meter"><span style="width:${readiness}%"></span></div><div class="breakdown"><div class="breakdown-row"><span>Contact details</span><strong>${state.profile.email&&state.profile.phone?'Complete':'Check profile'}</strong></div><div class="breakdown-row"><span>Standard sections</span><strong>${state.profile.experience?.length?'Present':'Add experience'}</strong></div><div class="breakdown-row"><span>Skill evidence</span><strong>${state.profile.skills.length} skills</strong></div></div></div>
       <div class="card score-card"><div class="score-card-head"><span>Match with this job</span><strong>${score}<small>/100</small></strong></div><div class="score-meter"><span style="width:${score}%"></span></div><div class="breakdown"><div class="breakdown-row"><span>Experience level</span><strong>${esc(job.years)}</strong></div><div class="breakdown-row"><span>Work mode</span><strong>${esc(job.mode)}</strong></div><div class="breakdown-row"><span>Remote eligibility</span><strong>${esc(job.eligible.slice(0,2).join(', '))}</strong></div></div>
         <div class="skills-block"><h4>Skills in your profile</h4><div class="tag-row">${matched.length?matched.map((skill)=>`<span class="tag green">✓ ${esc(skill)}</span>`).join(''):'<span class="tag">No direct overlap yet</span>'}</div></div>
         <div class="skills-block"><h4>Skills to review</h4><div class="tag-row">${missing.length?missing.slice(0,4).map((skill)=>`<span class="tag">${esc(skill)}</span>`).join(''):'<span class="tag green">No listed gaps</span>'}</div></div>
         ${missing.length?`<div class="fix-note">Only add a missing skill if you have evidence for it. Gaps stay visible in the tailored CV.</div>`:''}
       </div>
-      <div class="detail-cta">${job.isLive?`${approved?`<div class="saved-label">✓ Tailored CV v${approved.version} approved</div><button class="secondary-button" data-action="download-cv" data-id="${job.id}">Download approved CV (PDF)</button>`:''}<a class="primary-button" href="${esc(job.url)}" target="_blank" rel="noopener noreferrer">Open original listing ↗</a>`:approved?`<div class="saved-label">✓ Tailored CV v${approved.version} approved</div><button class="secondary-button" data-action="download-cv" data-id="${job.id}">Download approved CV (PDF)</button><button class="primary-button" data-action="apply-job" data-id="${job.id}">${job.source==='Native'?'Apply on Hireloom':'Record assisted apply'}</button>`:`<button class="primary-button" data-action="tailor-job" data-id="${job.id}">Tailor CV for this job</button><button class="secondary-button" data-action="apply-job" data-id="${job.id}">Apply with current CV</button>`}${history?`<button class="text-button" data-action="go-tracker">View application in tracker</button>`:''}<p class="route-note">${job.isLive?'Hireloom opens the provider listing; applications are submitted on that site.':'You review every CV and application. Auto-apply is off.'}</p></div></aside></div>`;
+      <div class="detail-cta">${job.isLive?`${approved?`<div class="saved-label">✓ Tailored CV v${approved.version} approved</div><button class="secondary-button" data-action="download-cv" data-id="${job.id}">Download approved CV (PDF)</button>`:''}<button class="secondary-button" data-action="tailor-job" data-id="${esc(job.id)}">Tailor CV</button><a class="primary-button" data-action="track-listing" data-id="${esc(job.id)}" href="${esc(job.url)}" target="_blank" rel="noopener noreferrer">Track and apply ↗</a>`:approved?`<div class="saved-label">✓ Tailored CV v${approved.version} approved</div><button class="secondary-button" data-action="download-cv" data-id="${job.id}">Download approved CV (PDF)</button><button class="primary-button" data-action="apply-job" data-id="${job.id}">${job.source==='Native'?'Apply on Hireloom':'Record assisted apply'}</button>`:`<button class="primary-button" data-action="tailor-job" data-id="${job.id}">Tailor CV for this job</button><button class="secondary-button" data-action="apply-job" data-id="${job.id}">Apply with current CV</button>`}${history?`<button class="text-button" data-action="go-tracker">View application in tracker</button>`:''}<p class="route-note">${job.isLive?'Hireloom records this role as Opened. Confirm submission in your tracker after applying.':'You review every CV and application. Auto-apply is off.'}</p></div></aside></div>`;
 }
 
 function renderProfile() {
@@ -415,8 +459,8 @@ function tailorContent(job) {
   const p = state.profile;
   const evidence = (p.experience || []).map((exp)=>exp.detail).filter(Boolean);
   const skills = matchingSkills(job);
-  const summary = state.tailoredEdits?.summary || p.summary || `${p.title} with experience in ${skills.join(', ')}.`;
-  const bullet = state.tailoredEdits?.bullet || evidence[0] || 'Add a confirmed experience bullet from your CV.';
+  const summary = state.tailoredEdits?.summary ?? (p.summary || p.title || '');
+  const bullet = state.tailoredEdits?.bullet ?? evidence.join('\n');
   return { summary, bullet, skills };
 }
 function renderTailoring() {
@@ -430,14 +474,30 @@ function renderTailoring() {
       <section class="card section-card"><div class="tailor-col-title">Tailored for this job <span class="tag primary">Draft</span></div><div class="tailor-col"><div class="compare-box changed"><h4>Summary · reordered</h4><p>${esc(tailored.summary)}</p></div><div class="compare-box changed"><h4>Experience · selected from your profile</h4><p>${esc(tailored.bullet)}</p></div><div class="compare-box gap-card"><h4>Gap · not added</h4><p>${missing.length?`${esc(missing.join(', '))} ${missing.length===1?'is':'are'} listed in the job, but not in your profile. Add evidence if you have it.`:'No required skill gaps are listed for this demo role.'}</p></div></div></section></div>`;
 }
 
+function renderSavedJobs() {
+  const cards=state.savedJobs.map(id=>{
+    const job=getJob(id);
+    return job ? renderJobCard(job) : `<article class="job-card"><p>This older saved listing is unavailable.</p><button class="text-button" data-action="save-job" data-id="${esc(id)}">Remove from saved jobs</button></article>`;
+  });
+  return `<div class="page-head"><h1>Saved jobs</h1></div>${cards.length ? `<div class="result-list">${cards.join('')}</div>` : '<div class="empty-state card"><h3>No saved jobs yet</h3><p>Use the heart on a job to revisit it here.</p><button class="primary-button" data-nav="chat">Find jobs</button></div>'}`;
+}
+
+function rememberJob(job) {
+  if (job && !state.pinnedJobs.some(item=>item.id===job.id)) state.pinnedJobs.push(snapshotJob(job));
+}
+function forgetUnusedJob(id) {
+  if (!state.savedJobs.includes(id) && !state.applications.some(item=>item.jobId===id) && !state.cvVersions.some(item=>item.jobId===id)) {
+    state.pinnedJobs=state.pinnedJobs.filter(item=>item.id!==id);
+  }
+}
 function renderTracker() {
-  const filters = ['All','Applied','Viewed','Shortlisted','Interview','Offer','Rejected','External follow-up'];
+  const filters = ['All','Applied','Viewed','Shortlisted','Interview','Offer','Rejected','Withdrawn','Not applied','External follow-up'];
   const visible = state.applications.filter((app) => state.trackerFilter==='All' || (state.trackerFilter==='External follow-up'?app.source==='External'&&['Opened','Not sure'].includes(app.status):app.status===state.trackerFilter));
   const counts = Object.fromEntries(filters.map((filter)=>[filter,filter==='All'?state.applications.length:filter==='External follow-up'?state.applications.filter((a)=>a.source==='External'&&['Opened','Not sure'].includes(a.status)).length:state.applications.filter((a)=>a.status===filter).length]));
   return `<div class="page-head"><div class="page-head-copy"><span class="eyebrow">Your search, kept in one place</span><h1>Applications</h1><p class="subhead">See each role, the CV version you used and the latest status you recorded.</p></div><button class="secondary-button" data-nav="chat">Find more jobs <span>↗</span></button></div>
     <div class="tracker-summary">${filters.map((filter)=>`<button class="tracker-filter ${state.trackerFilter===filter?'active':''}" data-tracker-filter="${esc(filter)}">${esc(filter)}<strong>${counts[filter]}</strong></button>`).join('')}</div>
-    ${visible.length?`<div class="card table-wrap"><table class="tracker-table"><thead><tr><th>Job</th><th>Source</th><th>CV</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>${visible.map((app)=>{const job=getJob(app.jobId);return `<tr><td><button class="table-job" data-job="${app.jobId}">${esc(job?.title||app.title)} · ${esc(job?.company||app.company)}</button><div class="application-history">${(app.history||[]).map((h)=>`${esc(h.status)} · ${esc(formatDate(h.date))}`).join('　›　')}</div></td><td>${esc(app.source)}</td><td>v${app.cvVersion}</td><td><span class="status-pill ${app.status.toLowerCase().replace(/\s+/g,'-')}">${esc(app.status)}</span></td><td>${esc(formatDate(app.createdAt))}</td><td><div class="table-actions">${app.source==='External'&&['Opened','Not sure'].includes(app.status)?`<button data-action="external-answer" data-id="${app.id}" data-answer="Applied">Yes, applied</button><button data-action="external-answer" data-id="${app.id}" data-answer="Not applied">No</button>`:`<select data-status-id="${app.id}" aria-label="Update ${esc(job?.title||'application')} status">${['Applied','Viewed','Shortlisted','Interview','Offer','Rejected','Withdrawn'].map((status)=>`<option ${app.status===status?'selected':''}>${status}</option>`).join('')}</select>`}</div></td></tr>`}).join('')}</tbody></table></div>`:`<div class="empty-state card"><div class="empty-icon">✓</div><h3>${state.applications.length?'No applications in this view yet':'Your tracker is ready'}</h3><p>${state.applications.length?'Choose another status to see your applications.':'Apply to a role to save it here. This demo stores applications in this browser only.'}</p><button class="primary-button" data-nav="chat">Explore matched roles</button></div>`}
-    <p class="upload-note" style="margin-top:12px">Application status is updated by you in this demo. External job handoffs are not sent to a company site.</p>`;
+    ${visible.length?`<div class="card table-wrap"><table class="tracker-table"><thead><tr><th>Job</th><th>Source</th><th>CV</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>${visible.map((app)=>{const job=getJob(app.jobId);return `<tr><td>${job?`<button class="table-job" data-job="${esc(app.jobId)}">${esc(job.title)} · ${esc(job.company)}</button>`:`${esc(app.title)} · ${esc(app.company)}`}<div class="application-history">${(app.history||[]).map((h)=>`${esc(h.status)} · ${esc(formatDate(h.date))}`).join('　›　')}</div></td><td>${esc(app.sourceName||app.source)}</td><td>v${app.cvVersion}</td><td><span class="status-pill ${app.status.toLowerCase().replace(/\s+/g,'-')}">${esc(app.status)}</span></td><td>${esc(formatDate(app.createdAt))}</td><td><div class="table-actions">${app.source==='External'&&['Opened','Not sure'].includes(app.status)?`<button data-action="external-answer" data-id="${app.id}" data-answer="Applied">Yes, applied</button><button data-action="external-answer" data-id="${app.id}" data-answer="Not applied">No</button>`:`<select data-status-id="${app.id}" aria-label="Update ${esc(job?.title||'application')} status">${(app.source==='External'?['Not applied','Applied','Viewed','Shortlisted','Interview','Offer','Rejected','Withdrawn']:['Applied','Viewed','Shortlisted','Interview','Offer','Rejected','Withdrawn']).map((status)=>`<option ${app.status===status?'selected':''}>${status}</option>`).join('')}</select>`}</div></td></tr>`}).join('')}</tbody></table></div>`:`<div class="empty-state card"><div class="empty-icon">✓</div><h3>${state.applications.length?'No applications in this view yet':'Your tracker is ready'}</h3><p>${state.applications.length?'Choose another status to see your applications.':'Open a role and choose Track and apply to add it here.'}</p><button class="primary-button" data-nav="chat">Explore matched roles</button></div>`}
+    <p class="upload-note" style="margin-top:12px">Opened means you started an application. Mark it Applied once you’ve submitted it on the employer’s site.</p>`;
 }
 
 function renderSettings() {
@@ -448,7 +508,7 @@ function renderSettings() {
   if (state.settingsTab==='notifications') body=`<h3>Notifications</h3><div class="setting-row"><div class="setting-row-copy"><strong>New matches</strong><small>Get a reminder when new roles fit your preferences.</small></div><button class="switch ${state.settings.newMatches?'on':''}" data-action="toggle-setting" data-setting="newMatches" aria-label="Toggle new matches"></button></div><div class="setting-row"><div class="setting-row-copy"><strong>Application reminders</strong><small>Remind me to update an external application status.</small></div><button class="switch ${state.settings.reminders?'on':''}" data-action="toggle-setting" data-setting="reminders" aria-label="Toggle application reminders"></button></div><div class="setting-row"><div class="setting-row-copy"><strong>Automatic applications</strong><small>Not implemented in this demo. It remains off.</small></div><button class="switch" disabled aria-label="Automatic applications off"></button></div>`;
   if (state.settingsTab==='privacy') body=`<h3>Privacy</h3><div class="setting-row"><div class="setting-row-copy"><strong>Export my data</strong><small>Download your profile, saved roles and tracker as JSON.</small></div><button class="secondary-button" data-action="export-data">Export data</button></div><div class="setting-row"><div class="setting-row-copy"><strong>${cloud.enabled?'Delete my account':'Delete local demo data'}</strong><small>${cloud.enabled?'Permanently remove your login, profile, chats, tracker and stored CV.':'Remove saved profile, chats, CV filename and applications from this browser.'}</small></div><button class="danger-button" data-action="delete-data">${cloud.enabled?'Delete account':'Delete data'}</button></div><div class="setting-row"><div class="setting-row-copy"><strong>CV handling</strong><small>${cloud.enabled?'Your latest CV (PDF only, up to 1 MB) is parsed in memory, then stored privately in your account. Uploading a new CV replaces it.':'Uploaded CVs are sent to the Hireloom server, parsed in memory and not retained by the app.'}</small></div><span class="tag green">${cloud.enabled?'Private storage':'In-memory processing'}</span></div>`;
   if (state.settingsTab==='language') body=`<h3>Language</h3><div class="setting-row"><div class="setting-row-copy"><strong>Interface language</strong><small>Choose the language used in Hireloom.</small></div><select class="settings-select" disabled><option>English</option></select></div>`;
-  if (state.settingsTab==='help') body=`<h3>Help and terms</h3><div class="setting-row"><div class="setting-row-copy"><strong>About this MVP</strong><small>Live listings come from Arbeitnow, Remotive, Jobicy, Himalayas and Remote OK. Global remote listings are matched to your profile or the location in your chat; match scores use local heuristics.</small></div><span class="tag">Demo</span></div><div class="setting-row"><div class="setting-row-copy"><strong>Human review</strong><small>You review your profile, CV edits and application status. Authorization and salary answers are never generated.</small></div></div>`;
+  if (state.settingsTab==='help') body=`<h3>Help and terms</h3><div class="setting-row"><div class="setting-row-copy"><strong>About this MVP</strong><small>Search reads open roles from the Twilio, Rubrik and GitLab career boards. Your prompt location takes priority over your profile locations.</small></div><span class="tag">Demo</span></div><div class="setting-row"><div class="setting-row-copy"><strong>Human review</strong><small>You review your profile, CV edits and application status. Authorization and salary answers are never generated.</small></div></div>`;
   return `<div class="page-head"><div class="page-head-copy"><span class="eyebrow">Account controls</span><h1>Settings</h1><p class="subhead">Manage notifications, privacy and your local demo account.</p></div></div><div class="settings-layout"><nav class="card settings-nav">${tabs.map(([id,label])=>`<button class="${state.settingsTab===id?'active':''}" data-settings-tab="${id}">${label}</button>`).join('')}</nav><section class="card settings-content">${body}</section></div>`;
 }
 
@@ -458,16 +518,23 @@ function renderPlans() {
 }
 
 function attachViewEvents() {
+  function submitAuth(form, handler) {
+    form.addEventListener('submit',async event=>{
+      event.preventDefault();
+      try { await handler(new FormData(form)); }
+      catch { authMessage='The account service could not finish this request. Please try again.';render(); }
+    });
+  }
   const loginForm=$('#login-form');
-  if(loginForm) loginForm.addEventListener('submit',(event)=>{event.preventDefault();loginUser(new FormData(loginForm));});
+  if(loginForm) submitAuth(loginForm,loginUser);
   const forgotForm=$('#forgot-form');
-  if(forgotForm) forgotForm.addEventListener('submit',(event)=>{event.preventDefault();cloudForgotPassword(new FormData(forgotForm));});
+  if(forgotForm) submitAuth(forgotForm,cloudForgotPassword);
   const verifyForm=$('#verify-form');
-  if(verifyForm) verifyForm.addEventListener('submit',(event)=>{event.preventDefault();cloudVerifyCode(new FormData(verifyForm));});
+  if(verifyForm) submitAuth(verifyForm,cloudVerifyCode);
   const resetForm=$('#reset-form');
-  if(resetForm) resetForm.addEventListener('submit',(event)=>{event.preventDefault();cloudResetPassword(new FormData(resetForm));});
+  if(resetForm) submitAuth(resetForm,cloudResetPassword);
   const signupForm=$('#signup-form');
-  if(signupForm) signupForm.addEventListener('submit',(event)=>{event.preventDefault();createAccount(new FormData(signupForm));});
+  if(signupForm) submitAuth(signupForm,createAccount);
   const searchForm=$('#search-form');
   if(searchForm) searchForm.addEventListener('submit',(event)=>{event.preventDefault();if(voiceState.status==='listening'){toast('Stop listening and review the transcript before searching.','error');return;}const raw=String(new FormData(searchForm).get('query')||'').trim();if(!raw)return;const fromVoice=voiceState.status==='review';const query=fromVoice?normalizeVoiceQuery(raw):raw;if(fromVoice&&query!==raw)toast('Common Hindi and German job-search terms were normalized for matching.','success');runSearch(query);});
   const languageSelect=$('#voice-language');
@@ -562,8 +629,14 @@ function cancelVoiceSearch(shouldRender=true,preserveInput=false) {
   if(shouldRender&&state.view==='chat')render();
 }
 
+function endLocalSession() {
+  cancelVoiceSearch(false); session=false; workspaceKey=null; state=initialState();
+  resetSearchCaches(); authMode='login'; authMessage=''; closeModal(); render();
+}
 function finishLogin(account) {
-  authData.lastEmail=account.email;saveAuth();state.profile.email=account.email;state.loggedOut=false;state.view='chat';persist();session=true;authMode='login';authMessage='';if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Welcome to your Hireloom workspace.','success');
+  resetSearchCaches();
+  state=loadLocalWorkspace(account);
+  authData.lastEmail=account.email;saveAuth();state.profile.email=account.email;state.loggedOut=false;state.view='chat';session=true;persist();authMode='login';authMessage='';if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Welcome to your Hireloom workspace.','success');
 }
 async function loginUser(formData) {
   if(cloud.enabled)return cloudLogin(formData);
@@ -590,34 +663,57 @@ async function createAccount(formData) {
     const salt=crypto.getRandomValues(new Uint8Array(16)),iterations=210000;
     const account={name,email,salt:toHex(salt),hash:await passwordHash(password,salt,iterations),iterations,createdAt:new Date().toISOString()};
     authData.accounts.push(account);authData.lastEmail=email;saveAuth();
-    state.profile.name=name;state.profile.email=email;state.loggedOut=false;state.view='chat';persist();session=true;authMode='login';authMessage='';if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Local demo account created.','success');
+    finishLogin(account);
   } catch(error) { authMessage=error.message||'Could not create the local account.';render(); }
 }
 
 // ---- Cloud accounts (Supabase). Only used when public/config.js is filled in. ----
+if (cloud.enabled) {
+  cloud.onUserChange = id => {
+    if (session && workspaceUserId && workspaceUserId!==id) {
+      cancelVoiceSearch(false);session=false;workspaceUserId=null;state=initialState();
+      resetSearchCaches();closeModal();authMode='login';authMessage='Your sign-in changed. Log in to open your workspace.';render();
+    }
+  };
+}
 if(cloud.enabled)cloud.onSyncError=()=>toast('Could not save your latest changes to your account. Check your connection; they will sync on your next change.','error');
 function syncSnapshot() {
-  // Search results are large and fetched live, so they are not synced; each search re-runs on the next device.
+  // Keep completed replies across devices. Cap listing previews to leave space in the workspace row.
   const wanted=new Set([...state.savedJobs,...state.applications.map((app)=>app.jobId),...state.cvVersions.map((version)=>version.jobId)]);
   const pinnedJobs=[...wanted].map((id)=>getJob(id)).filter(Boolean);
   const {pendingCvDraft,sidebarOpen,...rest}=state;
-  return {...rest,pinnedJobs,chats:state.chats.map((chat)=>({...chat,turns:(chat.turns||[]).map((turn)=>({...turn,jobs:[],sources:[],response:'',status:'unloaded',resultsCaptured:false,totalResults:0}))}))};
+  let remainingBytes=512000;
+  const encoder=new TextEncoder();
+  const chats=state.chats.map(chat=>{
+    const turns=(chat.turns||[]).map(turn=>({...turn,jobs:[]}));
+    for(let i=turns.length-1;i>=0;i--){
+      for(const job of chat.turns[i].jobs||[]){
+        const bytes=encoder.encode(JSON.stringify(job)).length;
+        if(bytes>remainingBytes)break;
+        turns[i].jobs.push(job);remainingBytes-=bytes;
+      }
+    }
+    return {...chat,turns};
+  });
+  return {...rest,pinnedJobs,chats};
 }
 function resetSearchCaches() {
+  pendingCvFile=null;pendingConsentFile=null;editingPromptTurnId=null;pendingDeleteChatId=null;
   liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};
 }
 async function enterCloudWorkspace(user,fallbackName='') {
   let remote=null;
-  try { remote=await cloud.pull(); }
-  catch(error) { await cloud.signOut();authMessage='You are signed in, but your saved workspace could not be loaded ('+(error.message||'network error')+'). Please log in again.';render();return; }
+  try { remote=await cloud.pull(user.id); }
+  catch(error) { authMessage='Your saved workspace could not be loaded. Check your connection and log in again.';render();return; }
   // Replace whatever this browser held, so two accounts never mix on a shared device.
-  try { state=remote?normalizeState(remote):initialState(); } catch { state=initialState(); }
+  try { state=remote?normalizeState(remote):newWorkspace(user.name||fallbackName,user.email); }
+  catch { authMode='login'; authMessage='Your saved workspace could not be read.'; render(); return; }
   const name=user.name||fallbackName;
   if(!remote&&name)state.profile.name=name;
+  workspaceUserId=user.id;workspaceKey=null;
   state.profile.email=user.email;state.loggedOut=false;state.view='chat';
   resetSearchCaches();
   session=true;authMode='login';authMessage='';authData.lastEmail=user.email;saveAuth();
-  persist();
   if(getChat()?.hasSearch)startChatSearches(getChat());else render();
   toast('Welcome to your Hireloom workspace.','success');
 }
@@ -683,8 +779,9 @@ async function cloudResetPassword(formData) {
 }
 async function cloudLogout() {
   cancelVoiceSearch(false);
-  try{await cloud.flush();}catch{}
-  await cloud.signOut();
+  try { await cloud.flush(); await cloud.signOut(); }
+  catch { closeModal(); toast('Logout could not finish. Check your connection and try again.', 'error'); return; }
+  workspaceUserId=null;
   session=false;
   try{localStorage.removeItem(STORAGE_KEY);}catch{}
   state=initialState();resetSearchCaches();authMode='login';authMessage='';
@@ -694,14 +791,15 @@ async function cloudDeleteAccount() {
   closeModal();toast('Deleting your account…');
   try{await cloud.deleteAccount();}
   catch(error){toast('Could not delete your account: '+(error.message||'try again'),'error');return;}
-  cancelVoiceSearch(false);session=false;
-  try{localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(AUTH_KEY);}catch{}
+  cancelVoiceSearch(false);session=false;workspaceUserId=null;
+  try{localStorage.removeItem(STORAGE_KEY);}catch{}
   state=initialState();authData={accounts:[],lastEmail:''};resetSearchCaches();authMode='login';authMessage='✓ Your account and data were deleted.';
   render();
 }
 async function storeCvFile(file) {
   try {
-    const path=await cloud.uploadCv(file);
+    const owner=state, path=await cloud.uploadCv(file,workspaceUserId);
+    if(!session||owner!==state)return;
     state.profile.cvPath=path;state.profile.cvStoredAt=new Date().toISOString();persist();
     if(state.view==='profile')render();
     toast('CV saved to your account.','success');
@@ -715,7 +813,28 @@ async function downloadStoredCv() {
   } catch(error) { toast('Could not download your CV: '+(error.message||'try again'),'error'); }
 }
 
+function resolveFollowup(prompt, previous) {
+  if (!previous) return prompt;
+  const filter = prompt.trim().replace(/[?.!]+$/, '').replace(/^(?:what about|how about|show me|only|just)\s+/i, '').trim();
+  const mode = filter.match(/^(remote|hybrid|on-?site)(?:\s+(?:ones|jobs|roles|positions|only))?$/i);
+  const place = filter.match(/^(in|near|around)\s+(.+)$/i);
+  if (mode) {
+    const base = previous.replace(/\b(?:remote|hybrid|on-?site|in-office)\b/gi, ' ').trim();
+    return (base + ' ' + mode[1]).replace(/\s+/g, ' ').trim();
+  }
+  if (place && queryLocationTerms(filter).length) {
+    let base = previous;
+    for (const old of queryLocationTerms(previous).sort((a,b)=>b.length-a.length)) {
+      const literal = old.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&');
+      base = base.replace(new RegExp('\\b(?:(?:based in|located in|in|near|around)\\s+)?'+literal+'\\b','gi'), ' ');
+    }
+    return (base.trim() + ' in ' + place[2]).replace(/\s+/g, ' ').trim();
+  }
+  return prompt;
+}
+
 function runSearch(query) {
+  if($('#search-query'))$('#search-query').value='';
   cancelVoiceSearch(false);
   let chat=getChat();
   if(!chat) {
@@ -724,6 +843,8 @@ function runSearch(query) {
   }
   chat.turns=Array.isArray(chat.turns)?chat.turns:[];
   const turn=makeSearchTurn(query,`turn-${Date.now()}-${Math.random().toString(36).slice(2,7)}`);
+  const previous = latestTurn(chat);
+  turn.searchQuery=resolveFollowup(query,previous?.searchQuery||previous?.query);
   turn.status='loading';chat.turns.push(turn);chat.query=query;
   if(chat.turns.length===1)chat.title=query.length>33?`${query.slice(0,32)}…`:query;
   chat.date='Today';chat.hasSearch=true;state.view='chat';persist();startLiveSearch(chat,false,turn.id);
@@ -731,7 +852,8 @@ function runSearch(query) {
 // Editing a prompt rewrites that same turn and re-runs its search, so no new prompt or response is added.
 function editPromptInPlace(chat,turn,query) {
   cancelVoiceSearch(false);
-  turn.query=query;
+  const previous=chat.turns[chat.turns.indexOf(turn)-1];
+  turn.query=query;turn.searchQuery=resolveFollowup(query,previous?.searchQuery||previous?.query);
   if(chat.turns[0]===turn)chat.title=query.length>33?`${query.slice(0,32)}…`:query;
   if(chat.turns[chat.turns.length-1]===turn)chat.query=query;
   startLiveSearch(chat,true,turn.id);
@@ -765,8 +887,9 @@ function startLiveSearch(chat,force=false,turnId=null) {
   const entry={chatId:chat.id,turnId:turn.id,query:turn.query,status:'loading',jobs:[],sources:[]};
   liveSearchByTurn.set(turn.id,entry);liveSearch=entry;persist();
   if(state.activeChatId===chat.id&&state.view==='chat')render();
-  const location=effectiveLocationTerms(turn.query).join(', ');
-  fetch(`/api/search-jobs?q=${encodeURIComponent(turn.query)}&location=${encodeURIComponent(location)}`)
+  const searchQuery=turn.searchQuery||turn.query;
+  const location=effectiveLocationTerms(searchQuery).join(', ');
+  fetch(`/api/search-jobs?q=${encodeURIComponent(searchQuery)}&location=${encodeURIComponent(location)}`)
     .then(async(response)=>{const body=await response.json();if(!response.ok)throw new Error(body.error||'Live job search failed.');return body;})
     .then((body)=>{
       if(liveSearchRequestByTurn.get(turn.id)!==requestId)return;
@@ -774,14 +897,14 @@ function startLiveSearch(chat,force=false,turnId=null) {
       const hasSource=entry.sources.some((source)=>source.ok);
       entry.jobs=hasSource&&Array.isArray(body.jobs)?body.jobs:[];entry.status=hasSource?'ready':'error';
       turn.sources=entry.sources;turn.status=entry.status;turn.resultsCaptured=true;
-      if(hasSource){const ranked=jobsForQuery(turn.query,entry.jobs);turn.totalResults=ranked.length;turn.jobs=ranked.map(snapshotJob);turn.response=ranked.length?`I found ${ranked.length} matching ${ranked.length===1?'role':'roles'}, ranked by fit.`:'I couldn’t find live listings that matched this prompt. Try another title, location, or work mode.';}
+      if(hasSource){const ranked=jobsForQuery(searchQuery,entry.jobs);turn.totalResults=ranked.length;turn.jobs=ranked.map(snapshotJob);turn.response=ranked.length?`I found ${ranked.length} matching ${ranked.length===1?'role':'roles'}, ranked by fit.`:'I couldn’t find live listings that matched this prompt. Try another title, location, or work mode.';}
       else{turn.totalResults=0;turn.jobs=[];turn.response='I couldn’t reach the live job feeds for this prompt. You can retry it.';}
       liveSearchByTurn.set(turn.id,entry);persist();
       if(state.activeChatId===chat.id){liveSearch=entry;if(state.view==='chat')render();}
     })
     .catch(()=>{
       if(liveSearchRequestByTurn.get(turn.id)!==requestId)return;
-      entry.status='error';entry.jobs=[];entry.sources=['Arbeitnow','Remotive','Jobicy','Himalayas','Remote OK'].map((name)=>({name,ok:false}));
+      entry.status='error';entry.jobs=[];entry.sources=[];
       turn.status='error';turn.resultsCaptured=true;turn.jobs=[];turn.sources=entry.sources;turn.totalResults=0;turn.response='I couldn’t reach the live job feeds for this prompt. You can retry it.';
       liveSearchByTurn.set(turn.id,entry);persist();
       if(state.activeChatId===chat.id){liveSearch=entry;if(state.view==='chat')render();}
@@ -817,20 +940,35 @@ function openApply(job) {
   openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Review and submit</span><h2>Confirm your application</h2><p class="modal-copy">${esc(job.title)} · ${esc(job.company)}</p><div class="modal-section"><h4>CV version used</h4><p>Hireloom CV v${cvVersion}${approved?' · tailored and approved':' · current profile version'}</p></div><div class="modal-section"><h4>Work authorization · ${esc(country)}</h4><div class="field" style="margin-top:7px"><label for="work-auth">Select your answer for this application</label><select id="work-auth" required><option value="">Choose an answer</option><option>I am authorized to work</option><option>I need sponsorship</option><option>I prefer to answer with the company</option></select></div><p style="margin-top:8px">You choose this answer yourself. Hireloom never fills it in automatically.</p></div><div class="modal-section"><h4>Demo submission</h4><p>The application will be added to your local tracker. This seeded role is not connected to the company, so nothing is sent externally.</p></div><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="submit-application" data-id="${job.id}">Save application</button></div>`);
 }
 
-function addHistory(app,status) { app.status=status;app.history.push({status,date:new Date().toISOString()}); }
+function addHistory(app,status) {
+  if(app.status===status)return;
+  app.status=status;
+  (app.history ||= []).push({status,date:new Date().toISOString()});
+}
 function submitApplication(jobId) {
   const job=getJob(jobId), answer=$('#work-auth')?.value;
   if(!answer){toast('Choose your work authorization answer or prefer to answer with the company.','error');return;}
   const approved=state.cvVersions.find((version)=>version.jobId===job.id&&version.approved);
   const existing=state.applications.find((app)=>app.jobId===job.id);
-  if(existing){addHistory(existing,'Applied');existing.workAuthorization=answer;}
+  if(existing){existing.workAuthorization=answer;}
   else state.applications.unshift({id:`app-${Date.now()}`,jobId:job.id,title:job.title,company:job.company,source:job.source,cvVersion:approved?.version||state.profile.cvVersion||1,status:'Applied',createdAt:new Date().toISOString(),workAuthorization:answer,history:[{status:'Applied',date:new Date().toISOString()}]});
   persist();closeModal();state.view='tracker';state.trackerFilter='All';render();toast('Application saved to your local tracker.','success');
 }
 function recordHandoff(jobId) {
   const job=getJob(jobId), approved=state.cvVersions.find((version)=>version.jobId===job.id&&version.approved);
-  if(!state.applications.some((app)=>app.jobId===jobId)) state.applications.unshift({id:`app-${Date.now()}`,jobId,title:job.title,company:job.company,source:'External',cvVersion:approved?.version||state.profile.cvVersion||1,status:'Opened',createdAt:new Date().toISOString(),history:[{status:'Opened',date:new Date().toISOString()}]});
-  persist();closeModal();render();openExternalFollowup(jobId);
+  rememberJob(job);
+  const existing = state.applications.find(app=>app.jobId===jobId);
+  if (!existing) {
+    const now = new Date().toISOString();
+    state.applications.unshift({id:crypto.randomUUID(),jobId,title:job.title,company:job.company,source:'External',
+      sourceName:job.source,jobUrl:job.url||'',cvVersion:approved?.version||state.profile.cvVersion||1,
+      status:'Opened',createdAt:now,history:[{status:'Opened',date:now}]});
+  } else if(existing.status==='Not applied') {
+    addHistory(existing,'Opened');
+  }
+  persist();
+  if(!existing||['Opened','Not sure'].includes(existing.status))openExternalFollowup(jobId);
+  else toast('Already in your tracker.');
 }
 function openExternalFollowup(jobId) {
   const job=getJob(jobId), app=state.applications.find((item)=>item.jobId===jobId);
@@ -862,13 +1000,15 @@ function handleUpload(file) {
   openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Before we read your CV</span><h2>Do you want Hireloom to read this CV?</h2><p class="muted"><strong>${esc(file.name)}</strong></p><div class="modal-section"><h4>If you choose yes</h4><p class="muted">The file is sent to Hireloom to read its text in memory and suggest your profile details. You review every detail before anything is saved${cloud.enabled?', and your latest CV is then stored privately in your account':''}.</p></div><div class="modal-section"><h4>If you choose no</h4><p class="muted">The CV is not read, sent or kept. Your profile stays as it is and you enter your details by hand.</p></div><div class="modal-actions"><button class="secondary-button" type="button" data-action="decline-cv-parse">No, I’ll enter details myself</button><button class="primary-button" type="button" data-action="accept-cv-parse">Yes, read my CV</button></div>`);
 }
 function parseCvFile(file) {
+  const owner=state, request=++cvRequest;
   if(!file)return;
   $('#cv-file-name').textContent=file.name;$('#cv-status').textContent='Uploading your CV for in-memory parsing…';
   const form=new FormData();form.append('file',file);
   fetch('/api/parse-cv',{method:'POST',body:form}).then(async(response)=>{const body=await response.json();if(!response.ok)throw new Error(body.error||'CV parsing failed.');return body;}).then((draft)=>{
+    if(!session||owner!==state||request!==cvRequest)return;
     state.pendingCvDraft={fileName:file.name,draft};pendingCvFile=file;
-    render();showCvDraftReview();
-  }).catch((error)=>{ $('#cv-status').textContent=`${file.name} · ${error.message}`;toast(error.message,'error'); });
+    if(state.view==='profile'){render();showCvDraftReview();}
+  }).catch((error)=>{ if(!session||owner!==state||request!==cvRequest)return;const status=$('#cv-status');if(status)status.textContent=`${file.name} · ${error.message}`;toast(error.message,'error'); });
 }
 function declineCvParse() {
   state.profileTab='about';render();
@@ -948,7 +1088,7 @@ function downloadApprovedCv(jobId) {
 }
 
 document.addEventListener('click',(event)=>{
-  const nav=event.target.closest('[data-nav]');if(nav){cancelVoiceSearch(false);state.view=nav.dataset.nav==='tracker'?'tracker':'chat';state.sidebarOpen=false;persist();if(state.view==='chat'&&getChat()?.hasSearch)startChatSearches(getChat());else render();return;}
+  const nav=event.target.closest('[data-nav]');if(nav){cancelVoiceSearch(false);state.view=['tracker','saved'].includes(nav.dataset.nav)?nav.dataset.nav:'chat';state.sidebarOpen=false;persist();if(state.view==='chat'&&getChat()?.hasSearch)startChatSearches(getChat());else render();return;}
   const chatButton=event.target.closest('[data-chat-id]');if(chatButton){cancelVoiceSearch(false);state.activeChatId=chatButton.dataset.chatId;state.view='chat';state.sidebarOpen=false;persist();if(getChat()?.hasSearch)startChatSearches(getChat());else render();return;}
   const jobButton=event.target.closest('[data-job]');if(jobButton){cancelVoiceSearch(false);state.selectedJobId=jobButton.dataset.job;state.view='job';state.sidebarOpen=false;persist();render();return;}
   const tab=event.target.closest('[data-profile-tab]');if(tab){state.profileTab=tab.dataset.profileTab;render();return;}
@@ -958,10 +1098,11 @@ document.addEventListener('click',(event)=>{
   const action=event.target.closest('[data-action]');if(!action)return;
   const id=action.dataset.id;
   switch(action.dataset.action){
+    case 'reload':window.location.reload();break;
     case 'show-signup':authDraft={name:'',email:$('#login-email')?.value||authData.lastEmail};authMode='signup';authMessage='';render();break;
-    case 'show-forgot':authDraft={name:'',email:$('#login-email')?.value||authData.lastEmail};authMode='forgot';authMessage='';render();break;
+    case 'show-forgot':if(!cloud.enabled){authMessage='Password recovery is available for cloud accounts. This demo account is stored in this browser.';render();break;}authDraft={name:'',email:$('#login-email')?.value||authData.lastEmail};authMode='forgot';authMessage='';render();break;
     case 'resend-code':sendResetCode(authDraft.email||authData.lastEmail,null);break;
-    case 'cancel-reset':cloud.signOut().finally(()=>{authMode='login';authMessage='';render();});break;
+    case 'cancel-reset':cloud.signOut().then(()=>{authMode='login';authMessage='';render();}).catch(()=>toast('Could not close the reset session. Please retry.','error'));break;
     case 'show-login':authData.lastEmail=$('#signup-email')?.value||authData.lastEmail;saveAuth();authMode='login';authMessage='';render();break;
     case 'toggle-password':{const input=document.getElementById(id);if(input){input.type=input.type==='password'?'text':'password';action.textContent=input.type==='password'?'Show':'Hide';}break;}
     case 'delete-chat':{const chat=state.chats.find((item)=>item.id===id);if(!chat)break;pendingDeleteChatId=id;openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Your searches</span><h2>Delete this chat?</h2><p class="modal-copy">“${esc(chat.title)}” and its saved search will be removed from this browser.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="danger-button" data-action="confirm-delete-chat">Delete chat</button></div>`);break;}
@@ -985,7 +1126,7 @@ document.addEventListener('click',(event)=>{
     case 'voice-retry':startVoiceSearch();break;
     case 'more-filters':showMoreFilters();break;
     case 'filter-chip':if(['Remote','Hybrid','Onsite'].includes(action.dataset.filter))runSearch(`${latestQuery()} ${action.dataset.filter}`,true);else showMoreFilters();break;
-    case 'save-job':{const saved=state.savedJobs.includes(id);state.savedJobs=saved?state.savedJobs.filter((jobId)=>jobId!==id):[...state.savedJobs,id];persist();render();toast(saved?'Removed from saved jobs.':'Job saved.','success');break;}
+    case 'save-job':{const saved=state.savedJobs.includes(id);state.savedJobs=saved?state.savedJobs.filter((jobId)=>jobId!==id):[...state.savedJobs,id];if(saved)forgetUnusedJob(id);else rememberJob(getJob(id));persist();render();toast(saved?'Removed from saved jobs.':'Job saved.','success');break;}
     case 'back-jobs':state.view='chat';render();break;
     case 'tailor-job':state.tailoringJobId=id;state.tailoredEdits=null;state.view='tailor';render();break;
     case 'back-job':state.view='job';render();break;
@@ -994,12 +1135,13 @@ document.addEventListener('click',(event)=>{
       openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Edit tailored CV</span><h2>Review the wording</h2><p class="modal-copy">Use facts you have confirmed in your profile. This demo does not generate new experience or skills.</p><form id="tailor-edit-form"><div class="field" style="margin-top:14px"><label for="tailor-summary">Summary</label><textarea id="tailor-summary" name="summary" required>${esc(draft.summary)}</textarea></div><div class="field" style="margin-top:11px"><label for="tailor-bullet">Experience bullet</label><textarea id="tailor-bullet" name="bullet" required>${esc(draft.bullet)}</textarea></div><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button">Save edits</button></div></form>`);
       $('#tailor-edit-form').addEventListener('submit',(e)=>{e.preventDefault();const fd=new FormData(e.currentTarget);state.tailoredEdits={summary:fd.get('summary'),bullet:fd.get('bullet')};persist();closeModal();render();toast('CV draft updated. Review it before approval.','success');});break;
     }
-    case 'approve-tailored':{const job=getJob(state.tailoringJobId),version=(state.profile.cvVersion||1)+state.cvVersions.filter((item)=>item.approved).length,draft=tailorContent(job);state.cvVersions=state.cvVersions.filter((item)=>item.jobId!==job.id);state.cvVersions.push({jobId:job.id,version,approved:true,approvedAt:new Date().toISOString(),summary:draft.summary,bullet:draft.bullet,skills:draft.skills,profile:{name:state.profile.name,email:state.profile.email,phone:state.profile.phone,location:state.profile.location,education:state.profile.education,title:state.profile.title}});persist();state.view='job';state.selectedJobId=job.id;render();toast(`Tailored CV v${version} approved for ${job.title}.`,'success');break;}
+    case 'approve-tailored':{const job=getJob(state.tailoringJobId),version=1+Math.max(state.profile.cvVersion||1,...state.cvVersions.map(item=>Number(item.version)||0)),draft=tailorContent(job);rememberJob(job);state.cvVersions=state.cvVersions.filter((item)=>item.jobId!==job.id);state.cvVersions.push({jobId:job.id,version,approved:true,approvedAt:new Date().toISOString(),summary:draft.summary,bullet:draft.bullet,skills:draft.skills,profile:{name:state.profile.name,email:state.profile.email,phone:state.profile.phone,location:state.profile.location,education:state.profile.education,title:state.profile.title}});persist();state.view='job';state.selectedJobId=job.id;render();toast(`Tailored CV v${version} approved for ${job.title}.`,'success');break;}
     case 'download-cv':downloadApprovedCv(id);break;
     case 'download-stored-cv':downloadStoredCv();break;
     case 'reject-tailored':state.view='job';render();toast('Draft rejected. Your profile has not changed.');break;
     case 'apply-job':openApply(getJob(id));break;
     case 'submit-application':submitApplication(id);break;
+    case 'track-listing':
     case 'record-handoff':recordHandoff(id);break;
     case 'external-answer':updateExternalAnswer(id,action.dataset.answer);break;
     case 'go-tracker':setView('tracker');break;
@@ -1008,12 +1150,16 @@ document.addEventListener('click',(event)=>{
     case 'toggle-setting':state.settings[action.dataset.setting]=!state.settings[action.dataset.setting];persist();render();break;
     case 'export-data':downloadData();break;
     case 'delete-data':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Privacy</span><h2>${cloud.enabled?'Delete your account?':'Delete local demo data?'}</h2><p class="modal-copy">${cloud.enabled?'This permanently deletes your login, profile, conversations, tracker and stored CV from Hireloom. This action cannot be undone.':'This removes your saved profile, conversations, CV filename and tracker entries from this browser. This action cannot be undone.'}</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="danger-button" data-action="confirm-delete">${cloud.enabled?'Delete account':'Delete data'}</button></div>`);break;
-    case 'confirm-delete':if(cloud.enabled){cloudDeleteAccount();break;}cancelVoiceSearch(false);localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(AUTH_KEY);state=initialState();authData={accounts:[],lastEmail:''};liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};authMode='login';authMessage='';session=false;closeModal();render();toast('Local demo data deleted.','success');break;
+    case 'confirm-delete':
+      if(cloud.enabled){cloudDeleteAccount();break;}
+      localStorage.removeItem(workspaceKey);
+      if (normalizeEmail(JSON.parse(localStorage.getItem(STORAGE_KEY)||'null')?.profile?.email) === authData.lastEmail) localStorage.removeItem(STORAGE_KEY);
+      authData.accounts=authData.accounts.filter(account=>account.email!==authData.lastEmail);
+      authData.lastEmail='';saveAuth();endLocalSession();toast('Your local account and workspace were deleted.','success');break;
     case 'reset-demo':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Reset demo</span><h2>Restore the sample workspace?</h2><p class="modal-copy">This resets your local profile, searches and applications to the sample data.</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="confirm-reset">Restore demo</button></div>`);break;
     case 'confirm-reset':cancelVoiceSearch(false);state=initialState();liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();toast('Sample workspace restored.','success');break;
     case 'logout':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Account</span><h2>Log out of Hireloom?</h2><p class="modal-copy">${cloud.enabled?'Your workspace is saved to your Hireloom account. This device’s copy will be cleared.':'This ends the current demo session. Your local profile and tracker data will remain saved in this browser.'}</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="confirm-logout">Log out</button></div>`);break;
-    case 'confirm-logout':if(cloud.enabled){cloudLogout();break;}cancelVoiceSearch(false);session=false;state.loggedOut=true;state.view='login';liveSearchByTurn.clear();liveSearchRequestByTurn.clear();liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};persist();closeModal();render();break;
-    case 'continue-demo':state.loggedOut=false;state.view='chat';persist();if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Returned to your saved demo workspace.','success');break;
+    case 'confirm-logout':if(cloud.enabled){cloudLogout();break;}endLocalSession();break;
     case 'plan-select':toast(`${action.dataset.plan} is a prototype plan. No payment is collected.`);break;
     case 'close-modal':pendingDeleteChatId=null;closeModal();break;
     case 'review-cv-draft':showCvDraftReview();break;
