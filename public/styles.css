@@ -290,6 +290,12 @@ h3 { margin-bottom: 6px; font-size: 15px; }
 .upload-note { margin: 8px 0 0; color: #9699a8; font-size: 9px; line-height: 1.5; }
 .inline-add { display: flex; gap: 7px; margin-top: 8px; }
 .inline-add input, .inline-add select { flex: 1; min-width: 0; border: 1px solid var(--line-strong); border-radius: 7px; padding: 7px 9px; color: #43475b; background: white; font-size: 10px; }
+.role-search { position: relative; flex: 1; min-width: 0; }
+.role-search > input { width: 100%; }
+.role-suggestions { position: absolute; z-index: 20; top: calc(100% + 4px); right: 0; left: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: white; box-shadow: 0 8px 24px rgba(41,44,101,.12); }
+.role-suggestions button { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; color: #4c5064; background: white; text-align: left; font-size: 10px; cursor: pointer; }
+.role-suggestions button:last-child { border-bottom: 0; }
+.role-suggestions button:hover, .role-suggestions button:focus { color: var(--navy); background: var(--lavender); outline: 0; }
 .skill-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .removable-tag { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 5px; padding: 5px 7px; color: #51548f; background: #f0efff; font-size: 9px; }
 .removable-tag span { color: #8588bb; font-size: 12px; line-height: 8px; }
