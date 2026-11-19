@@ -18,6 +18,16 @@ def main():
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(channel=os.getenv("HIRELOOM_BROWSER_CHANNEL"))
             context = browser.new_context()
+            context.add_init_script("""
+                window.__credentialOffers = [];
+                window.PasswordCredential = class PasswordCredential {
+                  constructor(data) { Object.assign(this, data); }
+                };
+                Object.defineProperty(navigator, 'credentials', {
+                  configurable: true,
+                  value: {store: async credential => { window.__credentialOffers.push(credential); return credential; }}
+                });
+            """)
             context.route("**/config.js", lambda r: r.fulfill(content_type="text/javascript", body="window.HIRELOOM_SUPABASE={};"))
             context.route("https://cdn.jsdelivr.net/**", lambda r: r.abort())
             context.route("https://fonts.googleapis.com/**", lambda r: r.abort())
@@ -33,11 +43,17 @@ def main():
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.set_default_timeout(7000)
             page.goto(f"http://127.0.0.1:{http.server_port}/", wait_until="domcontentloaded")
+            expect(page.locator("#login-form")).to_have_attribute("method", "post")
+            expect(page.locator("#login-email")).to_have_attribute("autocomplete", "username")
+            expect(page.locator("#login-password")).to_have_attribute("autocomplete", "current-password")
             action = lambda name: page.locator(f'[data-action="{name}"]').first.click()
             nav = lambda name: page.locator(f'button.nav-link[data-nav="{name}"]').click()
 
             def signup(name):
                 action("show-signup")
+                expect(page.locator("#signup-email")).to_have_attribute("autocomplete", "username")
+                expect(page.locator("#signup-password")).to_have_attribute("autocomplete", "new-password")
+                expect(page.locator("#signup-confirm")).to_have_attribute("autocomplete", "new-password")
                 page.locator("#signup-name").fill(name)
                 page.locator("#signup-email").fill(f"{name}@example.org")
                 page.locator("#signup-password").fill("local-fixture-only")
@@ -45,6 +61,7 @@ def main():
                 page.locator("[name=localConsent]").check()
                 page.locator("#signup-form .login-submit").click()
                 expect(page.locator("#search-query")).to_be_visible()
+                page.wait_for_function("window.__credentialOffers.length > 0")
 
             def logout():
                 action("toggle-menu")

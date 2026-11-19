@@ -341,7 +341,7 @@ function renderView() {
 
 function renderLogin() {
   if(cloud.unavailable)return '<section class="logged-out-wrap"><div class="card logged-out-card"><h1>Sign-in is unavailable</h1><p>The account service could not load. Check your connection and reload this page.</p><button class="primary-button" data-action="reload">Reload</button></div></section>';
-  return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Your next role, on your terms</span><h1>Welcome back</h1><p class="subhead">Log in to your Hireloom workspace.</p>${authMessage?`<p class="auth-message${authMessage.startsWith('✓')?' info':''}">${esc(authMessage)}</p>`:''}<form id="login-form" class="login-form"><div class="field"><label for="login-email">Email</label><input id="login-email" name="email" type="email" value="${esc(authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><div class="field"><label for="login-password">Password</label><div class="password-input"><input id="login-password" name="password" type="password" autocomplete="current-password" required /><button type="button" data-action="toggle-password" data-id="login-password">Show</button></div><button type="button" class="text-button forgot-link" data-action="show-forgot">Forgot password?</button></div><button class="primary-button login-submit">Log in</button></form><p class="login-switch">New to Hireloom? <button class="text-button" data-action="show-signup">Create an account</button></p>${cloud.enabled?'<p class="login-note"><strong>Your Hireloom account:</strong> log in on any device to pick up where you left off.</p></div><p class="logged-out-note">Your profile, searches and latest CV are saved privately to your account.</p>':'<p class="login-note"><strong>Local demo account:</strong> your email and salted password hash stay in this browser. No data is sent to an auth service.</p></div><p class="logged-out-note">Your profile and tracker remain saved in this browser between sessions.</p>'}</section>`;
+  return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Your next role, on your terms</span><h1>Welcome back</h1><p class="subhead">Log in to your Hireloom workspace.</p>${authMessage?`<p class="auth-message${authMessage.startsWith('✓')?' info':''}">${esc(authMessage)}</p>`:''}<form id="login-form" class="login-form" method="post" autocomplete="on"><div class="field"><label for="login-email">Email</label><input id="login-email" name="email" type="email" value="${esc(authData.lastEmail)}" placeholder="you@example.com" autocomplete="username" required /></div><div class="field"><label for="login-password">Password</label><div class="password-input"><input id="login-password" name="password" type="password" autocomplete="current-password" required /><button type="button" data-action="toggle-password" data-id="login-password">Show</button></div><button type="button" class="text-button forgot-link" data-action="show-forgot">Forgot password?</button></div><button class="primary-button login-submit" type="submit">Log in</button></form><p class="login-switch">New to Hireloom? <button class="text-button" data-action="show-signup">Create an account</button></p>${cloud.enabled?'<p class="login-note"><strong>Your Hireloom account:</strong> log in on any device to pick up where you left off.</p></div><p class="logged-out-note">Your profile, searches and latest CV are saved privately to your account.</p>':'<p class="login-note"><strong>Local demo account:</strong> your email and salted password hash stay in this browser. No data is sent to an auth service.</p></div><p class="logged-out-note">Your profile and tracker remain saved in this browser between sessions.</p>'}</section>`;
 }
 
 function authBrandHtml() {
@@ -363,7 +363,7 @@ function renderReset() {
 }
 
 function renderSignup() {
-  return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Start your search</span><h1>Create your account</h1><p class="subhead">${cloud.enabled?'Create your Hireloom account.':'Set up a local Hireloom demo account.'}</p>${authMessage?`<p class="auth-message${authMessage.startsWith('✓')?' info':''}">${esc(authMessage)}</p>`:''}<form id="signup-form" class="login-form"><div class="field"><label for="signup-name">Full name</label><input id="signup-name" name="name" value="${esc(authDraft.name)}" autocomplete="name" required /></div><div class="field"><label for="signup-email">Email</label><input id="signup-email" name="email" type="email" value="${esc(authDraft.email||authData.lastEmail)}" placeholder="you@example.com" autocomplete="email" required /></div><div class="field"><label for="signup-password">Password</label><div class="password-input"><input id="signup-password" name="password" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-password">Show</button></div><small>Use at least 8 characters.</small></div><div class="field"><label for="signup-confirm">Confirm password</label><div class="password-input"><input id="signup-confirm" name="confirm" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-confirm">Show</button></div></div><label class="consent-row"><input type="checkbox" name="localConsent" required /> <span>${cloud.enabled?'I agree that Hireloom stores my profile, searches and CV in my account so I can use them on any device.':'I understand this demo saves my profile and a password hash in this browser.'}</span></label><button class="primary-button login-submit">Create account</button></form><p class="login-switch">Already have an account? <button class="text-button" data-action="show-login">Log in</button></p><p class="login-note">${cloud.enabled?'You may need to confirm your email address before logging in. If you forget your password you can reset it with a code sent to your email from the login page.':'This creates a local demo account only. There is no email verification or account recovery.'}</p></div></section>`;
+  return `<section class="logged-out-wrap"><a class="brand logged-out-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span><span></span></span><span>hireloom</span></a><div class="card logged-out-card"><span class="eyebrow">Start your search</span><h1>Create your account</h1><p class="subhead">${cloud.enabled?'Create your Hireloom account.':'Set up a local Hireloom demo account.'}</p>${authMessage?`<p class="auth-message${authMessage.startsWith('✓')?' info':''}">${esc(authMessage)}</p>`:''}<form id="signup-form" class="login-form" method="post" autocomplete="on"><div class="field"><label for="signup-name">Full name</label><input id="signup-name" name="name" value="${esc(authDraft.name)}" autocomplete="name" required /></div><div class="field"><label for="signup-email">Email</label><input id="signup-email" name="email" type="email" value="${esc(authDraft.email||authData.lastEmail)}" placeholder="you@example.com" autocomplete="username" required /></div><div class="field"><label for="signup-password">Password</label><div class="password-input"><input id="signup-password" name="password" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-password">Show</button></div><small>Use at least 8 characters.</small></div><div class="field"><label for="signup-confirm">Confirm password</label><div class="password-input"><input id="signup-confirm" name="confirm" type="password" minlength="8" autocomplete="new-password" required /><button type="button" data-action="toggle-password" data-id="signup-confirm">Show</button></div></div><label class="consent-row"><input type="checkbox" name="localConsent" required /> <span>${cloud.enabled?'I agree that Hireloom stores my profile, searches and CV in my account so I can use them on any device.':'I understand this demo saves my profile and a password hash in this browser.'}</span></label><button class="primary-button login-submit" type="submit">Create account</button></form><p class="login-switch">Already have an account? <button class="text-button" data-action="show-login">Log in</button></p><p class="login-note">${cloud.enabled?'You may need to confirm your email address before logging in. If you forget your password you can reset it with a code sent to your email from the login page.':'This creates a local demo account only. There is no email verification or account recovery.'}</p></div></section>`;
 }
 
 function renderJobCard(job,scoreOverride) {
@@ -638,6 +638,13 @@ function finishLogin(account) {
   state=loadLocalWorkspace(account);
   authData.lastEmail=account.email;saveAuth();state.profile.email=account.email;state.loggedOut=false;state.view='chat';session=true;persist();authMode='login';authMessage='';if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Welcome to your Hireloom workspace.','success');
 }
+function offerBrowserCredential(email,password,name='') {
+  if(!window.PasswordCredential||!navigator.credentials?.store)return;
+  try {
+    const credential=new PasswordCredential({id:email,name:name||email,password});
+    void navigator.credentials.store(credential).catch(()=>{});
+  } catch {}
+}
 async function loginUser(formData) {
   if(cloud.enabled)return cloudLogin(formData);
   const email=normalizeEmail(formData.get('email')), password=String(formData.get('password')||'');
@@ -647,6 +654,7 @@ async function loginUser(formData) {
   try {
     const hash=await passwordHash(password,fromHex(account.salt),account.iterations);
     if(!sameHash(hash,account.hash)){authMessage='That password does not match this local account.';render();return;}
+    offerBrowserCredential(email,password,account.name);
     finishLogin(account);
   } catch(error) { authMessage=error.message||'Could not verify this password in the current browser.';render(); }
 }
@@ -663,6 +671,7 @@ async function createAccount(formData) {
     const salt=crypto.getRandomValues(new Uint8Array(16)),iterations=210000;
     const account={name,email,salt:toHex(salt),hash:await passwordHash(password,salt,iterations),iterations,createdAt:new Date().toISOString()};
     authData.accounts.push(account);authData.lastEmail=email;saveAuth();
+    offerBrowserCredential(email,password,name);
     finishLogin(account);
   } catch(error) { authMessage=error.message||'Could not create the local account.';render(); }
 }
@@ -723,6 +732,7 @@ async function cloudLogin(formData) {
   const button=$('.login-submit');if(button){button.disabled=true;button.textContent='Logging in…';}
   const result=await cloud.signIn(email,password);
   if(result.error){authMessage=result.error;render();return;}
+  offerBrowserCredential(email,password,result.user?.name);
   await enterCloudWorkspace(result.user);
 }
 async function cloudSignup(formData) {
@@ -736,6 +746,7 @@ async function cloudSignup(formData) {
   const result=await cloud.signUp(email,password,name);
   if(result.error){authMessage=result.error;render();return;}
   authData.lastEmail=email;saveAuth();
+  offerBrowserCredential(email,password,name);
   if(!result.signedIn){authMode='login';authMessage='✓ Account created. Check your email to confirm your address, then log in.';render();return;}
   await enterCloudWorkspace(result.user,name);
 }
@@ -773,6 +784,7 @@ async function cloudResetPassword(formData) {
   const result=await cloud.updatePassword(password);
   if(result.error){authMessage=result.error;render();return;}
   const user=result.user||await cloud.getUser();
+  offerBrowserCredential(authDraft.email||authData.lastEmail,password,user?.name);
   if(!user){authMode='login';authMessage='✓ Password updated. Log in with your new password.';render();return;}
   await enterCloudWorkspace(user);
   toast('Password updated. You are signed in.','success');
