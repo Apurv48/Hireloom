@@ -290,6 +290,19 @@ function atsScore() {
   return Math.min(98, score);
 }
 function tokensForSearch(query) { return String(query).toLowerCase().replace(/\b\d+\+?\s*(years?|yrs?)\b/g,' ').match(/[a-z][a-z0-9+#.-]*/g) || []; }
+// Keep in sync with SEARCH_SYNONYMS in server.py.
+const SEARCH_SYNONYMS={ml:['machine learning'],ai:['artificial intelligence'],pm:['product manager'],js:['javascript'],ts:['typescript'],k8s:['kubernetes'],qa:['quality assurance'],ux:['user experience']};
+function escapeRegex(text) { return text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+// Whole-word matchers for a keyword and its synonyms; 'java' does not match 'javascript', a plural s is allowed.
+function tokenMatchers(token) {
+  return [token,...(SEARCH_SYNONYMS[token]||[])].map((term)=>({term,pattern:new RegExp(`(?<![a-z0-9])${escapeRegex(term)}s?(?![a-z0-9])`)}));
+}
+function fieldHits(text,matchers) { return matchers.some(({term,pattern})=>text.includes(term)&&pattern.test(text)); }
+// Weights: title 3, skills 2, company or description 1.
+function tokenWeight(matchers,job) {
+  const title=String(job.title).toLowerCase(), skills=job.skills.join(' ').toLowerCase(), other=`${job.company} ${job.description}`.toLowerCase();
+  return fieldHits(title,matchers)?3:fieldHits(skills,matchers)?2:fieldHits(other,matchers)?1:0;
+}
 function jobsForQuery(query,catalogOverride) {
   const q = String(query || '').toLowerCase();
   const catalog=Array.isArray(catalogOverride)?catalogOverride:jobs;
@@ -300,14 +313,14 @@ function jobsForQuery(query,catalogOverride) {
   let tokens = tokensForSearch(query).filter((word) => !locationTokens.has(word) && !['remote','hybrid','onsite','on','site','in','the','and','with','jobs','job','roles','role','years','year','english','german','french','spanish','speaking','junior','senior'].includes(word));
   if (q.includes('junior')) tokens.push('junior');
   if (q.includes('senior')) tokens.push('senior');
+  const tokenMatchList = tokens.map(tokenMatchers);
   const ranked = catalog.map((job) => {
     if (!profileAllowsJob(job,marketTerms)) return { job, score:-1 };
     if (mode && job.mode !== mode) return { job, score:-1 };
     if (language && job.languages?.length && !job.languages.some((value) => value.toLowerCase() === language)) return { job, score:-1 };
-    const haystack = `${job.title} ${job.company} ${job.skills.join(' ')} ${job.description}`.toLowerCase();
-    const keywordScore = tokens.reduce((score, token) => score + (haystack.includes(token) ? 2 : 0), 0);
+    const keywordScore = tokenMatchList.reduce((score, matchers) => score + tokenWeight(matchers, job), 0);
     const roleBonus = q.includes('data analyst') && /analyst/i.test(job.title) ? 4 : 0;
-    const mlBonus = q.includes('ml') && /machine learning|ml/i.test(`${job.title} ${job.skills.join(' ')}`) ? 5 : 0;
+    const mlBonus = tokensForSearch(q).includes('ml') && /\bmachine learning\b|\bml\b/i.test(`${job.title} ${job.skills.join(' ')}`) ? 5 : 0;
     return { job, score:keywordScore + roleBonus + mlBonus + matchScore(job) / 100 };
   });
   return ranked.filter((entry) => entry.score >= 0).sort((a,b) => b.score-a.score).map((entry) => entry.job);
@@ -968,7 +981,7 @@ function startLiveSearch(chat,force=false,turnId=null) {
   if(state.activeChatId===chat.id&&state.view==='chat')render();
   const searchQuery=turn.searchQuery||turn.query;
   const location=effectiveLocationTerms(searchQuery).join(', ');
-  fetch(`/api/search-jobs?q=${encodeURIComponent(searchQuery)}&location=${encodeURIComponent(location)}`)
+  fetch(`/api/search-jobs?q=${encodeURIComponent(searchQuery)}&location=${encodeURIComponent(location)}&modes=${encodeURIComponent((state.profile.workModes||[]).join(','))}`)
     .then(async(response)=>{const body=await response.json();if(!response.ok)throw new Error(body.error||'Live job search failed.');return body;})
     .then((body)=>{
       if(liveSearchRequestByTurn.get(turn.id)!==requestId)return;

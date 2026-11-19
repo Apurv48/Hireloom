@@ -57,7 +57,7 @@ Hireloom searches a generated index of public postings from 300 fixed company ca
 
 The `Refresh company jobs` GitHub Actions workflow builds the first release index when this feature reaches `main`, then rebuilds it every day from those public employer feeds. It replaces the `job-index` release asset without adding a new large binary to Git history. The hosted API downloads that asset at most once every four hours per warm process and falls back to the bundled launch index if GitHub is unavailable. Searches read the generated index, so a user request does not send their prompt, profile or CV to 300 companies and does not wait for 300 network calls. Run `python scripts/refresh_job_index.py` to rebuild both index formats manually. The refresh keeps the previous release asset if fewer than 270 sources respond successfully.
 
-An explicit location in chat takes precedence over profile locations. A profile without locations gets the default markets, including India. Listings include the employer's posting date and work mode when supplied. The employer controls vacancy availability.
+An explicit location in chat takes precedence over profile locations. A profile without locations gets the default markets, including India. Listings include the employer's posting date and work mode when supplied. The search request also carries your work-mode preference, so only matching work modes are ranked. The employer controls vacancy availability.
 
 ## Included flows
 
