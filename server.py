@@ -338,6 +338,25 @@ def job_search_tokens(query: str) -> list[str]:
     return [token for token in re.findall(r"[a-z][a-z0-9+#.-]*", query.lower()) if token not in stop and not re.fullmatch(r"\d+\+?", token)][:12]
 
 
+# Keep in sync with SEARCH_SYNONYMS in public/app.js.
+SEARCH_SYNONYMS = {
+    "ml": ("machine learning",), "ai": ("artificial intelligence",), "pm": ("product manager",),
+    "js": ("javascript",), "ts": ("typescript",), "k8s": ("kubernetes",), "qa": ("quality assurance",), "ux": ("user experience",),
+}
+WORK_MODES = {"Remote", "Hybrid", "Onsite"}
+UNLISTED_MODES = {"Flexible", "Not listed"}
+
+
+def token_matchers(token: str) -> list[tuple[str, re.Pattern[str]]]:
+    """Whole-word matchers for a keyword and its synonyms. 'java' does not match 'javascript'; a plural s is allowed."""
+    return [(term, re.compile(rf"(?<![a-z0-9]){re.escape(term)}s?(?![a-z0-9])")) for term in (token, *SEARCH_SYNONYMS.get(token, ()))]
+
+
+def fields_hit(text: str, matchers: list[tuple[str, re.Pattern[str]]]) -> bool:
+    # The substring check is a cheap pre-filter; the regex runs only on likely hits.
+    return any(term in text and pattern.search(text) is not None for term, pattern in matchers)
+
+
 LOCATION_ALIASES = {
     "United States": ["united states", "usa", "us", "new york", "san francisco", "los angeles", "seattle", "austin", "boston", "chicago", "denver", "atlanta", "portland"],
     "United Kingdom": ["united kingdom", "uk", "britain", "england", "london", "manchester", "edinburgh", "birmingham", "bristol", "glasgow"],
@@ -484,19 +503,27 @@ def resolve_search(query: str, location_hint: str = "") -> tuple[list[str], list
     return locations, [token for token in job_search_tokens(query) if token not in location_tokens]
 
 
-def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: str = "") -> list[dict[str, object]]:
+def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: str = "", work_modes: list[str] | None = None) -> list[dict[str, object]]:
     lowered = query.lower()
     locations, tokens = resolve_search(query, location_hint)
     prefer_india = not query_location_terms(query)
     mode = "Remote" if re.search(r"\bremote\b", lowered) else "Hybrid" if re.search(r"\bhybrid\b", lowered) else "Onsite" if re.search(r"\b(on[- ]?site|in[- ]office)\b", lowered) else ""
+    allowed_modes = {item for item in (work_modes or []) if item in WORK_MODES}
+    matchers = [token_matchers(token) for token in tokens]
     ranked: list[tuple[int, int, int, dict[str, object]]] = []
     for job in jobs:
         if mode and job.get("mode") != mode:
             continue
-        searchable = " ".join(str(job.get(key, "")) for key in ("title", "company", "location", "description", "skills")).lower()
+        # Applied before the 60-result cap, so a profile's work mode is not lost to ranking.
+        if allowed_modes and job.get("mode") not in allowed_modes and job.get("mode") not in UNLISTED_MODES:
+            continue
         if not location_matches(job, locations):
             continue
-        score = sum(2 if token in str(job.get("title", "")).lower() else 1 for token in tokens if token in searchable)
+        title = str(job.get("title", "")).lower()
+        skills = " ".join(str(skill) for skill in (job.get("skills") or [])).lower()
+        other = " ".join(str(job.get(key, "")) for key in ("company", "location", "description")).lower()
+        # Weights: title 3, skills 2, other text 1.
+        score = sum(3 if fields_hit(title, alts) else 2 if fields_hit(skills, alts) else 1 if fields_hit(other, alts) else 0 for alts in matchers)
         if tokens and score == 0:
             continue
         try:
@@ -509,7 +536,7 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
     return [job for _, _, _, job in ranked[:60]]
 
 
-def search_live_jobs(query: str, location_hint: str = "") -> dict[str, object]:
+def search_live_jobs(query: str, location_hint: str = "", work_modes: list[str] | None = None) -> dict[str, object]:
     index = load_job_index()
     jobs = [job for job in index["jobs"] if isinstance(job, dict)]
     source_count = int(index.get("source_count", 0))
@@ -524,7 +551,7 @@ def search_live_jobs(query: str, location_hint: str = "") -> dict[str, object]:
         "error": f"{len(failed)} sources were unavailable during the last refresh." if failed else "",
         "successful": successful,
     }
-    return {"jobs": filter_live_jobs(jobs, query, location_hint), "sources": [source]}
+    return {"jobs": filter_live_jobs(jobs, query, location_hint, work_modes), "sources": [source]}
 
 
 def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:
@@ -930,8 +957,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/search-jobs":
             query = parse_qs(parsed.query).get("q", [""])[0][:240]
             location_hint = parse_qs(parsed.query).get("location", [""])[0][:180]
+            work_modes = [item.strip() for item in parse_qs(parsed.query).get("modes", [""])[0][:60].split(",") if item.strip()]
             try:
-                self.send_json(200, search_live_jobs(query, location_hint))
+                self.send_json(200, search_live_jobs(query, location_hint, work_modes))
             except Exception:
                 self.send_json(502, {"error": "Company career pages could not be searched right now."})
             return

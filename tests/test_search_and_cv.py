@@ -99,5 +99,49 @@ class CareerSearchTests(unittest.TestCase):
         self.assertEqual(server.cv_download_filename({"version": {"profile": {"name": "../../"}}}), "Candidate_CV.pdf")
 
 
+
+def make_job(job_id, title, mode="Remote", location="Bengaluru, India", description="", skills=()):
+    return {"id": job_id, "title": title, "company": "Acme", "location": location, "mode": mode,
+            "eligible": ["India"], "skills": list(skills), "description": description,
+            "published": "2025-01-01", "languages": []}
+
+
+class SearchRelevanceTests(unittest.TestCase):
+    def ids(self, jobs, query, modes=None):
+        return [job["id"] for job in server.filter_live_jobs(jobs, query, "India", modes)]
+
+    def test_keywords_match_whole_words_only(self):
+        jobs = [make_job("js", "JavaScript Engineer", description="Build with JavaScript"),
+                make_job("java", "Java Developer"),
+                make_job("analyst", "Data Analysts")]
+        self.assertEqual(self.ids(jobs, "java"), ["java"])
+        self.assertEqual(self.ids(jobs, "data analyst"), ["analyst"])
+
+    def test_short_keyword_does_not_match_inside_other_words(self):
+        jobs = [make_job("good", "Platform Engineer", description="Good communication skills"),
+                make_job("go", "Go Developer")]
+        self.assertEqual(self.ids(jobs, "go"), ["go"])
+
+    def test_title_match_outranks_description_match(self):
+        jobs = [make_job("desc", "Data Engineer", description="Python pipelines and Python tooling"),
+                make_job("title", "Python Developer")]
+        self.assertEqual(self.ids(jobs, "python"), ["title", "desc"])
+
+    def test_synonym_matches_expanded_term_and_ml_ignores_html(self):
+        jobs = [make_job("ml", "Machine Learning Engineer"), make_job("html", "HTML Developer")]
+        self.assertEqual(self.ids(jobs, "ml"), ["ml"])
+
+    def test_work_mode_filter_runs_before_result_cap(self):
+        remote = [make_job(f"remote-{i}", "Python Engineer") for i in range(70)]
+        hybrid = [make_job("hybrid", "Backend Platform Team", mode="Hybrid", description="Python services")]
+        jobs = remote + hybrid
+        self.assertEqual(len(self.ids(jobs, "python")), 60)
+        self.assertNotIn("hybrid", self.ids(jobs, "python"))
+        self.assertEqual(self.ids(jobs, "python", modes=["Hybrid"]), ["hybrid"])
+
+    def test_unlisted_work_mode_is_kept_by_work_mode_filter(self):
+        jobs = [make_job("unlisted", "Python Engineer", mode="Not listed")]
+        self.assertEqual(self.ids(jobs, "python", modes=["Hybrid"]), ["unlisted"])
+
 if __name__ == "__main__":
     unittest.main()
