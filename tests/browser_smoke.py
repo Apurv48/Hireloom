@@ -94,8 +94,11 @@ def main():
             assert all(term in query for term in ("python", "hybrid", "bengaluru")) and "remote" not in query
             expect(page.locator(".conversation-turn")).to_have_count(2)
             action("save-job")
-            nav("saved")
             page.set_viewport_size({"width": 1280, "height": 360})
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            assert page.evaluate("window.scrollY") > 0
+            nav("saved")
+            page.wait_for_function("window.scrollY === 0")
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             assert page.evaluate("window.scrollY") > 0
             page.locator(".job-title-button").click()

@@ -104,6 +104,7 @@ let authData=loadAuth(), authMode='login', authMessage='', authDraft={name:'',em
 let liveSearch={chatId:null,turnId:null,query:'',status:'idle',jobs:[],sources:[]};
 let pendingDeleteChatId=null;
 let editingPromptTurnId=null;
+let lastRenderedRoute=null;
 const liveSearchByTurn=new Map();
 const liveSearchRequestByTurn=new Map();
 let liveSearchSequence=0;
@@ -302,7 +303,19 @@ function updateShell() {
   $('#chat-list').innerHTML = state.chats.map((chat) => `<div class="chat-row"><button class="chat-item ${chat.id === state.activeChatId ? 'active' : ''}" data-chat-id="${esc(chat.id)}" title="${esc(chat.title)}">${esc(chat.title)}<small>${esc(chat.date || 'Today')}</small></button><button class="chat-delete-button" data-action="delete-chat" data-id="${esc(chat.id)}" aria-label="Delete chat: ${esc(chat.title)}" title="Delete chat">×</button></div>`).join('');
   $('#sidebar').classList.toggle('open', state.sidebarOpen);
 }
+function currentRouteKey() {
+  if(state.view==='login')return `login:${authMode}`;
+  if(state.view==='chat')return `chat:${state.activeChatId}`;
+  if(state.view==='job')return `job:${state.selectedJobId||''}`;
+  if(state.view==='profile')return `profile:${state.profileTab}`;
+  if(state.view==='tailor')return `tailor:${state.tailoringJobId||''}`;
+  if(state.view==='settings')return `settings:${state.settingsTab}`;
+  return state.view;
+}
 function render() {
+  const route=currentRouteKey();
+  const routeChanged=route!==lastRenderedRoute;
+  lastRenderedRoute=route;
   updateShell();
   const loggedOut=state.view==='login';
   $('.app-shell').classList.toggle('logged-out',loggedOut);
@@ -326,6 +339,7 @@ function render() {
   }
   const next=$('#search-query');
   if(text && next){next.value=text;if(focused){next.focus();next.setSelectionRange(...cursor);}}
+  if(routeChanged)requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'auto'}));
 }
 
 function renderView() {
@@ -1101,11 +1115,7 @@ function showCvDraftReview() {
     p.cvName=state.pendingCvDraft.fileName;p.cvStatus=`Parsed by Hireloom · ${draft.pageCount?`${draft.pageCount} pages · `:''}profile updated`;const cvFile=pendingCvFile;pendingCvFile=null;state.pendingCvDraft=null;persist();closeModal();render();toast('Your profile was updated from the CV.','success');if(cloud.enabled&&cvFile)storeCvFile(cvFile);
   });
 }
-function setView(view) { cancelVoiceSearch(false);state.view=view;state.sidebarOpen=false;persist();render();window.scrollTo({top:0,behavior:'smooth'}); }
-function renderFromTop() {
-  render();
-  requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'auto'}));
-}
+function setView(view) { cancelVoiceSearch(false);state.view=view;state.sidebarOpen=false;persist();render(); }
 function downloadData() {
   const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),profile:state.profile,chats:state.chats,applications:state.applications,savedJobs:state.savedJobs,settings:state.settings},null,2)],{type:'application/json'});
   const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='hireloom-demo-data.json';link.click();URL.revokeObjectURL(link.href);toast('Your local data export is ready.','success');
@@ -1122,7 +1132,7 @@ function downloadApprovedCv(jobId) {
 document.addEventListener('click',(event)=>{
   const nav=event.target.closest('[data-nav]');if(nav){cancelVoiceSearch(false);state.view=['tracker','saved'].includes(nav.dataset.nav)?nav.dataset.nav:'chat';state.sidebarOpen=false;persist();if(state.view==='chat'&&getChat()?.hasSearch)startChatSearches(getChat());else render();return;}
   const chatButton=event.target.closest('[data-chat-id]');if(chatButton){cancelVoiceSearch(false);state.activeChatId=chatButton.dataset.chatId;state.view='chat';state.sidebarOpen=false;persist();if(getChat()?.hasSearch)startChatSearches(getChat());else render();return;}
-  const jobButton=event.target.closest('[data-job]');if(jobButton){cancelVoiceSearch(false);state.selectedJobId=jobButton.dataset.job;state.view='job';state.sidebarOpen=false;persist();renderFromTop();return;}
+  const jobButton=event.target.closest('[data-job]');if(jobButton){cancelVoiceSearch(false);state.selectedJobId=jobButton.dataset.job;state.view='job';state.sidebarOpen=false;persist();render();return;}
   const tab=event.target.closest('[data-profile-tab]');if(tab){state.profileTab=tab.dataset.profileTab;render();return;}
   const settingTab=event.target.closest('[data-settings-tab]');if(settingTab){state.settingsTab=settingTab.dataset.settingsTab;render();return;}
   const trackerFilter=event.target.closest('[data-tracker-filter]');if(trackerFilter){state.trackerFilter=trackerFilter.dataset.trackerFilter;render();return;}
