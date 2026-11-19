@@ -95,6 +95,8 @@ class CareerSearchTests(unittest.TestCase):
         self.assertIn("EDUCATION", text)
         self.assertIn("ACHIEVEMENTS", text)
         self.assertIn("CERTIFICATIONS", text)
+        self.assertEqual(server.cv_download_filename({"version": {"profile": {"name": "Apurv Kumar"}}}), "Apurv_Kumar_CV.pdf")
+        self.assertEqual(server.cv_download_filename({"version": {"profile": {"name": "../../"}}}), "Candidate_CV.pdf")
 
 
 if __name__ == "__main__":

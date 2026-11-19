@@ -5,6 +5,10 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = (value = '') => String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const toList = (value) => String(value || '').split(',').map((part) => part.trim()).filter(Boolean);
+function cvDownloadName(name) {
+  const safe=String(name||'Candidate').replace(/[<>:"/\\|?*\u0000-\u001f]/g,' ').trim().replace(/\s+/g,'_').replace(/_+/g,'_').slice(0,80);
+  return `${safe||'Candidate'}_CV.pdf`;
+}
 const cloud = window.HireloomCloud || { enabled: false };
 
 const jobs = [
@@ -1111,7 +1115,7 @@ function downloadApprovedCv(jobId) {
   if(!job||!version){toast('Approve a tailored CV before downloading it.','error');return;}
   fetch('/api/render-cv',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({job:{title:job.title,company:job.company},version})})
     .then(async(response)=>{if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||'Could not create the CV file.');}return response.blob();})
-    .then((blob)=>{const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`Hireloom_CV_v${version.version}.pdf`;link.click();URL.revokeObjectURL(link.href);toast('Approved CV downloaded.','success');})
+    .then((blob)=>{const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=cvDownloadName(version.profile?.name||state.profile.name);link.click();URL.revokeObjectURL(link.href);toast('Approved CV downloaded.','success');})
     .catch((error)=>toast(error.message,'error'));
 }
 

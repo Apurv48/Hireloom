@@ -46,6 +46,7 @@ def main():
             expect(page.locator("#login-form")).to_have_attribute("method", "post")
             expect(page.locator("#login-email")).to_have_attribute("autocomplete", "username")
             expect(page.locator("#login-password")).to_have_attribute("autocomplete", "current-password")
+            assert page.evaluate("cvDownloadName('Apurv Kumar')") == "Apurv_Kumar_CV.pdf"
             action = lambda name: page.locator(f'[data-action="{name}"]').first.click()
             nav = lambda name: page.locator(f'button.nav-link[data-nav="{name}"]').click()
 

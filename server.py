@@ -799,6 +799,15 @@ def _encodable(char: str) -> bool:
         return False
 
 
+def cv_download_filename(payload: dict[str, object]) -> str:
+    version = payload.get("version") if isinstance(payload.get("version"), dict) else {}
+    profile = version.get("profile") if isinstance(version.get("profile"), dict) else {}
+    raw_name = str(profile.get("name", "")).strip() or "Candidate"
+    ascii_name = unicodedata.normalize("NFKD", raw_name).encode("ascii", "ignore").decode("ascii")
+    safe_name = re.sub(r"[^A-Za-z0-9]+", "_", ascii_name).strip("_")[:80] or "Candidate"
+    return f"{safe_name}_CV.pdf"
+
+
 def make_pdf(payload: dict[str, object]) -> bytes:
     """Build an ATS-friendly CV modeled on the supplied traditional single-column format."""
     try:
@@ -988,7 +997,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header("Content-Type", "application/pdf")
-        self.send_header("Content-Disposition", 'attachment; filename="Hireloom_Approved_CV.pdf"')
+        self.send_header("Content-Disposition", f'attachment; filename="{cv_download_filename(payload)}"')
         self.send_header("Content-Length", str(len(document)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
