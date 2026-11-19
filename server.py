@@ -558,16 +558,16 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
         "summary": re.compile(r"^(?:profile|professional profile|professional summary|summary|objective|about me|career summary|personal statement)$", re.I),
         "experience": re.compile(r"^(?:professional experience|work experience|employment history|work history|career history|experience|professional background)$", re.I),
         "education": re.compile(r"^(?:education|educational background|academic background|academics|academic qualifications)$", re.I),
-        "skills": re.compile(r"^(?:skills|technical skills|core skills|key skills|core competencies|areas of expertise|technical expertise|technologies|tools and technologies|skills and tools)$", re.I),
+        "skills": re.compile(r"^(?:skills|technical skills|core skills|key skills|key competencies|core competencies|areas of expertise|technical expertise|technologies|tools and technologies|skills and tools)$", re.I),
         "achievements": re.compile(r"^(?:achievements?|key achievements|accomplishments|awards?|honors?|honours?)$", re.I),
         "certifications": re.compile(r"^(?:certifications?|certificates?|licenses and certifications|licences and certifications|licenses|licences)$", re.I),
         "languages": re.compile(r"^(?:languages|language skills|language proficiency|languages and proficiency)$", re.I),
         "preferences": re.compile(r"^(?:job preferences|employment preferences|career preferences|work preferences|preferences|job search preferences)$", re.I),
         "roles": re.compile(r"^(?:target roles|interested roles|roles of interest|target positions|positions of interest)$", re.I),
     }
-    other_sections = re.compile(r"^(?:projects?|publications?|volunteering|volunteer experience|interests|hobbies|references|personal details|contact details|internships?|extracurricular activities)\s*:?$", re.I)
+    other_sections = re.compile(r"^(?:projects?|key projects?|documentation|key documentation|publications?|volunteering|volunteer experience|interests|hobbies|references|personal details|contact details|internships?|extracurricular activities)\s*:?$", re.I)
     for line in lines:
-        candidate = line.strip(" \t•|:-–—")
+        candidate = line.strip(" \t•●|:-–—")
         section = next((key for key, pattern in section_headers.items() if pattern.match(candidate.rstrip(":"))), "")
         if section:
             current_section = section
@@ -576,14 +576,14 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
             current_section = ""
             continue
         if current_section:
-            sections[current_section].append(candidate)
+            sections[current_section].append(line.strip() if current_section in {"experience", "skills"} else candidate)
 
     def labeled_value(labels: str) -> str:
         match = re.search(rf"(?im)^\s*(?:{labels})\s*[:=–—-]\s*(.*?)\s*$", text)
         return match.group(1).strip(" \t|·-–—") if match else ""
 
     def cleaned_lines(values: list[str]) -> list[str]:
-        return [re.sub(r"\s+", " ", value.strip(" \t•*-–—▪◦")).strip() for value in values if value.strip(" \t•*-–—▪◦")]
+        return [re.sub(r"\s+", " ", value.strip(" \t•●*-–—▪◦")).strip() for value in values if value.strip(" \t•●*-–—▪◦")]
 
     def list_values(values: list[str]) -> list[str]:
         found: list[str] = []
@@ -614,15 +614,15 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
     experiences: list[dict[str, str]] = []
     current_experience: dict[str, str] | None = None
     for raw_line in experience_lines[:120]:
-        clean = raw_line.strip(" \t•*-–—▪◦")
+        clean = raw_line.strip(" \t•●*-–—▪◦")
         if not clean:
             continue
-        is_bullet = bool(re.match(r"^\s*[•*▪◦-]", raw_line))
+        is_bullet = bool(re.match(r"^\s*[•●*▪◦-]", raw_line))
         date_match = date_pattern.search(clean)
         without_dates = date_pattern.sub("", clean).strip(" ,;|·-–—")
         looks_like_role = bool(role_terms.search(without_dates)) and len(without_dates) <= 140
         separated = bool(re.search(r"\s+(?:at|@)\s+|\s*[|·—]\s*", without_dates, re.I))
-        starts_experience = looks_like_role and not is_bullet and (bool(date_match) or separated or len(without_dates.split()) <= 10)
+        starts_experience = looks_like_role and not is_bullet and (bool(date_match) or separated)
         if starts_experience:
             if len(experiences) >= 20:
                 break
@@ -643,7 +643,8 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
             elif not is_bullet and not current_experience["company"] and len(clean.split()) <= 6 and len(clean) <= 100:
                 current_experience["company"] = clean[:120]
             elif clean and len(clean) > 4:
-                current_experience["detail"] = (current_experience["detail"] + " " + clean).strip()[:1200]
+                separator = "\n" if is_bullet and current_experience["detail"] else " "
+                current_experience["detail"] = (current_experience["detail"] + separator + clean).strip()[:6000]
 
     if not experiences:
         exp_title = first_nonempty(labeled_value(r"(?:current\s+)?(?:job\s+)?(?:role|position|job\s+title)"), title)
@@ -672,7 +673,23 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
             if location:
                 break
 
-    skills = list_values(sections["skills"] + [value for value in [labeled_value(r"(?:technical\s+)?skills?|core\s+competencies|technologies|tools") ] if value])
+    raw_skill_lines = sections["skills"]
+    structured_skills = any(re.match(r"^\s*[•●*▪◦-]", line) or ":" in line for line in raw_skill_lines)
+    if structured_skills:
+        skills = []
+        for raw_line in raw_skill_lines:
+            clean = re.sub(r"\s+", " ", raw_line.strip(" \t•●*-–—▪◦")).strip()
+            if not clean:
+                continue
+            if re.match(r"^\s*[•●*▪◦-]", raw_line) or not skills:
+                skills.append(clean)
+            else:
+                skills[-1] = f"{skills[-1]} {clean}"[:500]
+        labeled_skills = labeled_value(r"(?:technical\s+)?skills?|key\s+competencies|core\s+competencies|technologies|tools")
+        if labeled_skills:
+            skills.extend(list_values([labeled_skills]))
+    else:
+        skills = list_values(raw_skill_lines + [value for value in [labeled_value(r"(?:technical\s+)?skills?|key\s+competencies|core\s+competencies|technologies|tools")] if value])
     for skill in SKILLS:
         if re.search(r"(?<![\w+#.])" + re.escape(skill.lower()) + r"(?![\w+#.])", normalized, re.I) and skill.lower() not in {value.lower() for value in skills}:
             skills.append(skill)
@@ -683,11 +700,11 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
     email = first_nonempty(labeled_value(r"(?:email|e-mail|email\s+address)"), emails[0] if emails else "")
     phone = first_nonempty(labeled_value(r"(?:phone|telephone|mobile|mobile\s+number|contact\s+number)"), phones[0].strip() if phones else "")
     summary = first_nonempty(" ".join(cleaned_lines(sections["summary"])), labeled_value(r"(?:professional\s+)?(?:profile\s+)?summary|objective|about\s+me"))[:1200]
-    education = " · ".join(cleaned_lines(sections["education"]))[:1200]
+    education = "\n".join(cleaned_lines(sections["education"]))[:1200]
     if not education:
         education = labeled_value(r"(?:education|degree|qualification|highest\s+qualification)")[:1200]
     if not education:
-        education = " · ".join(line.strip(" \t•*-–—") for line in lines if re.search(r"\b(?:bachelor|master|ph\.?d|doctorate|diploma|degree|university|college|institute|school)\b", line, re.I))[:1200]
+        education = "\n".join(line.strip(" \t•●*-–—") for line in lines if re.search(r"\b(?:bachelor|master|ph\.?d|doctorate|diploma|degree|university|college|institute|school)\b", line, re.I))[:1200]
 
     achievements = list_values(sections["achievements"] + [value for value in [labeled_value(r"(?:key\s+)?(?:achievements|accomplishments|awards|honors|honours)")] if value])
     certifications = list_values(sections["certifications"] + [value for value in [labeled_value(r"(?:certifications?|certificates?|licenses?|licences?)")] if value])
@@ -769,7 +786,8 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
 def pdf_safe(text: str) -> str:
     """Keep only characters the built-in PDF fonts can draw, so the CV never shows boxes."""
     cleaned = "".join(char for char in str(text) if char in "\t\n" or ord(char) >= 32)
-    cleaned = cleaned.replace("\t", " ").replace("\u00a0", " ").replace("\u2022", "-")
+    cleaned = (cleaned.replace("\t", " ").replace("\u00a0", " ").replace("\u2022", "-").replace("\u25cf", "-")
+               .replace("\u2013", "-").replace("\u2014", "-").replace("\u2192", "to"))
     return "".join(char if char in "\n" or _encodable(char) else "?" for char in cleaned)
 
 
@@ -782,13 +800,13 @@ def _encodable(char: str) -> bool:
 
 
 def make_pdf(payload: dict[str, object]) -> bytes:
-    """Build the approved, ATS-friendly CV as a single-column PDF with real, selectable text."""
+    """Build an ATS-friendly CV modeled on the supplied traditional single-column format."""
     try:
         from reportlab.lib.enums import TA_LEFT
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.units import mm
-        from reportlab.platypus import HRFlowable, ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer
+        from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer
     except ImportError as exc:
         raise RuntimeError("PDF CV creation needs reportlab. Install it with: python -m pip install reportlab") from exc
 
@@ -796,15 +814,19 @@ def make_pdf(payload: dict[str, object]) -> bytes:
     profile = version.get("profile") if isinstance(version.get("profile"), dict) else {}
     name = pdf_safe(str(profile.get("name", "")).strip()) or "Candidate"
     headline = pdf_safe(str(profile.get("title", "")).strip())
-    contact = " | ".join(pdf_safe(str(profile.get(key, "")).strip()) for key in ("email", "phone", "location") if str(profile.get(key, "")).strip())
+    contact = " | ".join(pdf_safe(str(profile.get(key, "")).strip()) for key in ("location", "phone", "email") if str(profile.get(key, "")).strip())
     skills = version.get("skills") if isinstance(version.get("skills"), list) else []
-    skill_line = pdf_safe(", ".join(str(skill).strip() for skill in skills if str(skill).strip()))
+    experiences = profile.get("experience") if isinstance(profile.get("experience"), list) else []
+    achievements = profile.get("achievements") if isinstance(profile.get("achievements"), list) else []
+    certifications = profile.get("certifications") if isinstance(profile.get("certifications"), list) else []
 
-    base = ParagraphStyle("base", fontName="Helvetica", fontSize=10.5, leading=14.5, alignment=TA_LEFT, textColor="#111111")
-    title = ParagraphStyle("title", parent=base, fontName="Helvetica-Bold", fontSize=20, leading=24, spaceAfter=2)
-    subtitle = ParagraphStyle("subtitle", parent=base, fontSize=12, leading=16, textColor="#333333")
-    small = ParagraphStyle("small", parent=base, fontSize=9.5, textColor="#444444", spaceAfter=4)
-    heading = ParagraphStyle("heading", parent=base, fontName="Helvetica-Bold", fontSize=12, leading=16, spaceBefore=12, spaceAfter=3)
+    base = ParagraphStyle("base", fontName="Times-Roman", fontSize=10.2, leading=12.6, alignment=TA_LEFT, textColor="#111111", spaceAfter=2)
+    title = ParagraphStyle("title", parent=base, fontName="Times-Bold", fontSize=17, leading=20, spaceAfter=1)
+    subtitle = ParagraphStyle("subtitle", parent=base, fontName="Times-Bold", fontSize=11, leading=14, spaceAfter=1)
+    contact_style = ParagraphStyle("contact", parent=base, fontSize=9.5, leading=12, spaceAfter=2)
+    heading = ParagraphStyle("heading", parent=base, fontName="Times-Bold", fontSize=11.2, leading=13.5, spaceBefore=9, spaceAfter=1)
+    role_style = ParagraphStyle("role", parent=base, fontName="Times-Bold", fontSize=10.7, leading=13, spaceBefore=4, spaceAfter=1)
+    bullet_style = ParagraphStyle("bullet", parent=base, leftIndent=12, firstLineIndent=-8, spaceAfter=1)
 
     def para(text: str, style) -> Paragraph:
         return Paragraph(escape(text).replace("\n", "<br/>"), style)
@@ -813,29 +835,77 @@ def make_pdf(payload: dict[str, object]) -> bytes:
     if headline:
         story.append(para(headline, subtitle))
     if contact:
-        story.append(para(contact, small))
-    story.append(HRFlowable(width="100%", thickness=0.6, color="#999999", spaceBefore=2, spaceAfter=2))
+        story.append(para(contact, contact_style))
 
-    def section(label: str, body: str, bullets: bool = False) -> None:
-        body = body.strip()
-        if not body:
-            return
-        story.append(para(label, heading))
-        if bullets:
-            items = [line.strip(" -*\t") for line in body.splitlines() if line.strip(" -*\t")]
-            story.append(ListFlowable([ListItem(para(item, base), leftIndent=12) for item in items], bulletType="bullet", start="-", leftIndent=12, bulletFontSize=10))
+    def heading_block(label: str) -> None:
+        story.append(para(label.upper(), heading))
+        story.append(HRFlowable(width="100%", thickness=0.65, color="#111111", spaceBefore=0, spaceAfter=3))
+
+    def bullet(text: object) -> Paragraph:
+        return para(f"- {pdf_safe(str(text)).strip()}", bullet_style)
+
+    def text_items(value: object) -> list[str]:
+        if isinstance(value, list):
+            return [pdf_safe(str(item)).strip(" -*\t") for item in value if str(item).strip(" -*\t")]
+        return [pdf_safe(line).strip(" -*\t") for line in str(value or "").splitlines() if line.strip(" -*\t")]
+
+    summary = pdf_safe(str(version.get("summary", ""))).strip()
+    if summary:
+        heading_block("Professional Summary")
+        story.append(para(summary, base))
+
+    skill_items = [pdf_safe(str(skill)).strip() for skill in skills if str(skill).strip()]
+    if skill_items:
+        heading_block("Key Competencies")
+        grouped_skills = [item for item in skill_items if ":" in item]
+        if grouped_skills:
+            story.extend(bullet(item) for item in grouped_skills)
         else:
-            story.append(para(body, base))
+            story.append(para(" | ".join(skill_items), base))
 
-    section("Summary", pdf_safe(str(version.get("summary", ""))))
-    section("Experience", pdf_safe(str(version.get("bullet", ""))), bullets=True)
-    section("Skills", skill_line)
-    section("Education", pdf_safe(str(profile.get("education", ""))))
-    story.append(Spacer(1, 2 * mm))
+    tailored_bullet = pdf_safe(str(version.get("bullet", ""))).strip()
+    valid_experiences = [item for item in experiences if isinstance(item, dict) and any(str(value).strip() for value in item.values())]
+    if valid_experiences or tailored_bullet:
+        heading_block("Professional Experience")
+        if valid_experiences:
+            for index, experience in enumerate(valid_experiences):
+                role = pdf_safe(str(experience.get("title", "")).strip())
+                company = pdf_safe(str(experience.get("company", "")).strip())
+                dates = pdf_safe(str(experience.get("dates", "")).strip())
+                role_company = " - ".join(value for value in (role, company) if value)
+                header = " | ".join(value for value in (role_company, dates) if value) or "Experience"
+                details = tailored_bullet if index == 0 and tailored_bullet else experience.get("detail", "")
+                items = text_items(details)
+                first = [para(header, role_style)]
+                if items:
+                    first.append(bullet(items[0]))
+                story.append(KeepTogether(first))
+                story.extend(bullet(item) for item in items[1:])
+        else:
+            story.extend(bullet(item) for item in text_items(tailored_bullet))
+
+    education = pdf_safe(str(profile.get("education", ""))).strip()
+    if education:
+        heading_block("Education")
+        story.extend(bullet(item) for item in text_items(education))
+
+    if achievements:
+        heading_block("Achievements")
+        story.extend(bullet(item) for item in text_items(achievements))
+
+    if certifications:
+        heading_block("Certifications")
+        story.extend(bullet(item) for item in text_items(certifications))
+
+    languages = pdf_safe(str(profile.get("languages", ""))).strip()
+    if languages:
+        heading_block("Languages")
+        story.append(para(languages, base))
+    story.append(Spacer(1, 1 * mm))
 
     output = io.BytesIO()
     document = SimpleDocTemplate(
-        output, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm, bottomMargin=18 * mm,
+        output, pagesize=A4, leftMargin=19 * mm, rightMargin=19 * mm, topMargin=16 * mm, bottomMargin=16 * mm,
         title=f"{name} - CV", author=name, creator="Hireloom", pageCompression=1,
     )
     document.build(story)

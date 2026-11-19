@@ -76,12 +76,25 @@ class CareerSearchTests(unittest.TestCase):
         self.assertGreater(index["job_count"], 40_000)
 
     def test_pdf_export_and_parse_round_trip(self):
-        pdf = server.make_pdf({"version": {"profile": {"name": "Test Candidate", "email": "test@example.org"},
-                              "skills": ["Python", "SQL"], "summary": "Data engineer."}})
+        pdf = server.make_pdf({"version": {"profile": {
+            "name": "Test Candidate", "email": "test@example.org", "phone": "+91 90000 00000",
+            "location": "Bengaluru, India", "title": "Data Engineer", "education": "B.Tech, Computer Science | 2021 - 2025",
+            "experience": [{"title": "Data Engineer", "company": "Example Ltd", "dates": "2023 - Present",
+                            "detail": "Built Python pipelines.\nImproved reporting quality."}],
+            "achievements": ["Reduced processing time by 30%."], "certifications": ["AWS Fundamentals"],
+            "languages": "English (Fluent), Hindi (Fluent)"},
+            "skills": ["Python", "SQL"], "summary": "Data engineer.", "bullet": "Built reliable Python pipelines."}})
         result = server.parse_cv("candidate.pdf", pdf)
+        text, _ = server.extract_document("candidate.pdf", pdf)
         self.assertEqual(result["email"], "test@example.org")
         self.assertIn("Python", result["skills"])
         self.assertEqual(result["pageCount"], 1)
+        self.assertLess(text.index("PROFESSIONAL SUMMARY"), text.index("KEY COMPETENCIES"))
+        self.assertLess(text.index("KEY COMPETENCIES"), text.index("PROFESSIONAL EXPERIENCE"))
+        self.assertIn("Data Engineer - Example Ltd | 2023 - Present", text)
+        self.assertIn("EDUCATION", text)
+        self.assertIn("ACHIEVEMENTS", text)
+        self.assertIn("CERTIFICATIONS", text)
 
 
 if __name__ == "__main__":
