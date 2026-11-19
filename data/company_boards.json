@@ -1,0 +1,1806 @@
+{
+  "version": 1,
+  "source_count": 300,
+  "companies": [
+    {
+      "company": "Tekion",
+      "provider": "ashby",
+      "slug": "tekion",
+      "careers_url": "https://jobs.ashbyhq.com/tekion"
+    },
+    {
+      "company": "Twilio",
+      "provider": "greenhouse",
+      "slug": "twilio",
+      "careers_url": "https://boards.greenhouse.io/twilio"
+    },
+    {
+      "company": "Rubrik Job Board",
+      "provider": "greenhouse",
+      "slug": "rubrik",
+      "careers_url": "https://boards.greenhouse.io/rubrik"
+    },
+    {
+      "company": "GitLab",
+      "provider": "greenhouse",
+      "slug": "gitlab",
+      "careers_url": "https://boards.greenhouse.io/gitlab"
+    },
+    {
+      "company": "Razorpay Software Private Limited",
+      "provider": "greenhouse",
+      "slug": "razorpaysoftwareprivatelimited",
+      "careers_url": "https://boards.greenhouse.io/razorpaysoftwareprivatelimited"
+    },
+    {
+      "company": "InMobi",
+      "provider": "greenhouse",
+      "slug": "inmobi",
+      "careers_url": "https://boards.greenhouse.io/inmobi"
+    },
+    {
+      "company": "Motive",
+      "provider": "greenhouse",
+      "slug": "gomotive",
+      "careers_url": "https://boards.greenhouse.io/gomotive"
+    },
+    {
+      "company": "Agoda",
+      "provider": "greenhouse",
+      "slug": "agoda",
+      "careers_url": "https://boards.greenhouse.io/agoda"
+    },
+    {
+      "company": "Meesho",
+      "provider": "lever",
+      "slug": "meesho",
+      "careers_url": "https://jobs.lever.co/meesho"
+    },
+    {
+      "company": "Paytm",
+      "provider": "lever",
+      "slug": "paytm",
+      "careers_url": "https://jobs.lever.co/paytm"
+    },
+    {
+      "company": "Renuity",
+      "provider": "ashby",
+      "slug": "renuity",
+      "careers_url": "https://jobs.ashbyhq.com/renuity"
+    },
+    {
+      "company": "Harvey",
+      "provider": "ashby",
+      "slug": "harvey",
+      "careers_url": "https://jobs.ashbyhq.com/harvey"
+    },
+    {
+      "company": "Snowflake",
+      "provider": "ashby",
+      "slug": "snowflake",
+      "careers_url": "https://jobs.ashbyhq.com/snowflake"
+    },
+    {
+      "company": "Crusoe",
+      "provider": "ashby",
+      "slug": "crusoe",
+      "careers_url": "https://jobs.ashbyhq.com/crusoe"
+    },
+    {
+      "company": "Applied",
+      "provider": "ashby",
+      "slug": "applied",
+      "careers_url": "https://jobs.ashbyhq.com/applied"
+    },
+    {
+      "company": "Clera",
+      "provider": "ashby",
+      "slug": "clera",
+      "careers_url": "https://jobs.ashbyhq.com/clera"
+    },
+    {
+      "company": "Legora",
+      "provider": "ashby",
+      "slug": "legora",
+      "careers_url": "https://jobs.ashbyhq.com/legora"
+    },
+    {
+      "company": "Allarahealth",
+      "provider": "ashby",
+      "slug": "allarahealth",
+      "careers_url": "https://jobs.ashbyhq.com/allarahealth"
+    },
+    {
+      "company": "Halter",
+      "provider": "ashby",
+      "slug": "halter",
+      "careers_url": "https://jobs.ashbyhq.com/halter"
+    },
+    {
+      "company": "Fluidstack",
+      "provider": "ashby",
+      "slug": "fluidstack",
+      "careers_url": "https://jobs.ashbyhq.com/fluidstack"
+    },
+    {
+      "company": "Saronic",
+      "provider": "ashby",
+      "slug": "saronic",
+      "careers_url": "https://jobs.ashbyhq.com/saronic"
+    },
+    {
+      "company": "Mistral.Ai",
+      "provider": "ashby",
+      "slug": "mistral.ai",
+      "careers_url": "https://jobs.ashbyhq.com/mistral.ai"
+    },
+    {
+      "company": "Sierra",
+      "provider": "ashby",
+      "slug": "sierra",
+      "careers_url": "https://jobs.ashbyhq.com/sierra"
+    },
+    {
+      "company": "Clickhouse",
+      "provider": "ashby",
+      "slug": "clickhouse",
+      "careers_url": "https://jobs.ashbyhq.com/clickhouse"
+    },
+    {
+      "company": "Maintainx",
+      "provider": "ashby",
+      "slug": "maintainx",
+      "careers_url": "https://jobs.ashbyhq.com/maintainx"
+    },
+    {
+      "company": "Formenergy",
+      "provider": "ashby",
+      "slug": "formenergy",
+      "careers_url": "https://jobs.ashbyhq.com/formenergy"
+    },
+    {
+      "company": "Leland",
+      "provider": "ashby",
+      "slug": "leland",
+      "careers_url": "https://jobs.ashbyhq.com/leland"
+    },
+    {
+      "company": "Base Power",
+      "provider": "ashby",
+      "slug": "base-power",
+      "careers_url": "https://jobs.ashbyhq.com/base-power"
+    },
+    {
+      "company": "Wayve",
+      "provider": "ashby",
+      "slug": "wayve",
+      "careers_url": "https://jobs.ashbyhq.com/wayve"
+    },
+    {
+      "company": "Skydio",
+      "provider": "ashby",
+      "slug": "skydio",
+      "careers_url": "https://jobs.ashbyhq.com/skydio"
+    },
+    {
+      "company": "Pennylane",
+      "provider": "ashby",
+      "slug": "pennylane",
+      "careers_url": "https://jobs.ashbyhq.com/pennylane"
+    },
+    {
+      "company": "Checkout.Com",
+      "provider": "ashby",
+      "slug": "checkout.com",
+      "careers_url": "https://jobs.ashbyhq.com/checkout.com"
+    },
+    {
+      "company": "Ramp",
+      "provider": "ashby",
+      "slug": "ramp",
+      "careers_url": "https://jobs.ashbyhq.com/ramp"
+    },
+    {
+      "company": "Rivianvw.Tech",
+      "provider": "ashby",
+      "slug": "rivianvw.tech",
+      "careers_url": "https://jobs.ashbyhq.com/rivianvw.tech"
+    },
+    {
+      "company": "Horizon3Ai",
+      "provider": "ashby",
+      "slug": "horizon3ai",
+      "careers_url": "https://jobs.ashbyhq.com/horizon3ai"
+    },
+    {
+      "company": "Sailorhealth",
+      "provider": "ashby",
+      "slug": "sailorhealth",
+      "careers_url": "https://jobs.ashbyhq.com/sailorhealth"
+    },
+    {
+      "company": "Elevenlabs",
+      "provider": "ashby",
+      "slug": "elevenlabs",
+      "careers_url": "https://jobs.ashbyhq.com/elevenlabs"
+    },
+    {
+      "company": "Hadrian Automation",
+      "provider": "ashby",
+      "slug": "hadrian-automation",
+      "careers_url": "https://jobs.ashbyhq.com/hadrian-automation"
+    },
+    {
+      "company": "Harmattan Ai",
+      "provider": "ashby",
+      "slug": "harmattan-ai",
+      "careers_url": "https://jobs.ashbyhq.com/harmattan-ai"
+    },
+    {
+      "company": "Hims And Hers",
+      "provider": "ashby",
+      "slug": "hims-and-hers",
+      "careers_url": "https://jobs.ashbyhq.com/hims-and-hers"
+    },
+    {
+      "company": "Finni Health",
+      "provider": "ashby",
+      "slug": "finni-health",
+      "careers_url": "https://jobs.ashbyhq.com/finni-health"
+    },
+    {
+      "company": "Notion",
+      "provider": "ashby",
+      "slug": "notion",
+      "careers_url": "https://jobs.ashbyhq.com/notion"
+    },
+    {
+      "company": "Perk",
+      "provider": "ashby",
+      "slug": "perk",
+      "careers_url": "https://jobs.ashbyhq.com/perk"
+    },
+    {
+      "company": "Sondermind",
+      "provider": "ashby",
+      "slug": "sondermind",
+      "careers_url": "https://jobs.ashbyhq.com/sondermind"
+    },
+    {
+      "company": "Neko Health",
+      "provider": "ashby",
+      "slug": "neko-health",
+      "careers_url": "https://jobs.ashbyhq.com/neko-health"
+    },
+    {
+      "company": "Whoop",
+      "provider": "ashby",
+      "slug": "whoop",
+      "careers_url": "https://jobs.ashbyhq.com/whoop"
+    },
+    {
+      "company": "Decagon",
+      "provider": "ashby",
+      "slug": "decagon",
+      "careers_url": "https://jobs.ashbyhq.com/decagon"
+    },
+    {
+      "company": "Perplexity",
+      "provider": "ashby",
+      "slug": "perplexity",
+      "careers_url": "https://jobs.ashbyhq.com/perplexity"
+    },
+    {
+      "company": "Apex Technology Inc",
+      "provider": "ashby",
+      "slug": "apex-technology-inc",
+      "careers_url": "https://jobs.ashbyhq.com/apex-technology-inc"
+    },
+    {
+      "company": "Plaid",
+      "provider": "ashby",
+      "slug": "plaid",
+      "careers_url": "https://jobs.ashbyhq.com/plaid"
+    },
+    {
+      "company": "Wonderful",
+      "provider": "ashby",
+      "slug": "wonderful",
+      "careers_url": "https://jobs.ashbyhq.com/wonderful"
+    },
+    {
+      "company": "Alan",
+      "provider": "ashby",
+      "slug": "alan",
+      "careers_url": "https://jobs.ashbyhq.com/alan"
+    },
+    {
+      "company": "Cursor",
+      "provider": "ashby",
+      "slug": "cursor",
+      "careers_url": "https://jobs.ashbyhq.com/cursor"
+    },
+    {
+      "company": "Etched",
+      "provider": "ashby",
+      "slug": "etched",
+      "careers_url": "https://jobs.ashbyhq.com/etched"
+    },
+    {
+      "company": "Skelar",
+      "provider": "ashby",
+      "slug": "skelar",
+      "careers_url": "https://jobs.ashbyhq.com/skelar"
+    },
+    {
+      "company": "Cohere",
+      "provider": "ashby",
+      "slug": "cohere",
+      "careers_url": "https://jobs.ashbyhq.com/cohere"
+    },
+    {
+      "company": "Cerebras",
+      "provider": "ashby",
+      "slug": "cerebras",
+      "careers_url": "https://jobs.ashbyhq.com/cerebras"
+    },
+    {
+      "company": "Barnes",
+      "provider": "ashby",
+      "slug": "barnes",
+      "careers_url": "https://jobs.ashbyhq.com/barnes"
+    },
+    {
+      "company": "Lightspeedhq",
+      "provider": "ashby",
+      "slug": "lightspeedhq",
+      "careers_url": "https://jobs.ashbyhq.com/lightspeedhq"
+    },
+    {
+      "company": "Truelogic",
+      "provider": "ashby",
+      "slug": "truelogic",
+      "careers_url": "https://jobs.ashbyhq.com/truelogic"
+    },
+    {
+      "company": "Eliseai",
+      "provider": "ashby",
+      "slug": "eliseai",
+      "careers_url": "https://jobs.ashbyhq.com/eliseai"
+    },
+    {
+      "company": "Teya",
+      "provider": "ashby",
+      "slug": "teya",
+      "careers_url": "https://jobs.ashbyhq.com/teya"
+    },
+    {
+      "company": "Trm Labs",
+      "provider": "ashby",
+      "slug": "trm-labs",
+      "careers_url": "https://jobs.ashbyhq.com/trm-labs"
+    },
+    {
+      "company": "Xero",
+      "provider": "ashby",
+      "slug": "xero",
+      "careers_url": "https://jobs.ashbyhq.com/xero"
+    },
+    {
+      "company": "Zip",
+      "provider": "ashby",
+      "slug": "zip",
+      "careers_url": "https://jobs.ashbyhq.com/zip"
+    },
+    {
+      "company": "Salonkee",
+      "provider": "ashby",
+      "slug": "salonkee",
+      "careers_url": "https://jobs.ashbyhq.com/salonkee"
+    },
+    {
+      "company": "Mercor",
+      "provider": "ashby",
+      "slug": "mercor",
+      "careers_url": "https://jobs.ashbyhq.com/mercor"
+    },
+    {
+      "company": "Cognition",
+      "provider": "ashby",
+      "slug": "cognition",
+      "careers_url": "https://jobs.ashbyhq.com/cognition"
+    },
+    {
+      "company": "Baseten",
+      "provider": "ashby",
+      "slug": "baseten",
+      "careers_url": "https://jobs.ashbyhq.com/baseten"
+    },
+    {
+      "company": "1X",
+      "provider": "ashby",
+      "slug": "1x",
+      "careers_url": "https://jobs.ashbyhq.com/1x"
+    },
+    {
+      "company": "Uipath",
+      "provider": "ashby",
+      "slug": "uipath",
+      "careers_url": "https://jobs.ashbyhq.com/uipath"
+    },
+    {
+      "company": "Kong",
+      "provider": "ashby",
+      "slug": "kong",
+      "careers_url": "https://jobs.ashbyhq.com/kong"
+    },
+    {
+      "company": "Nubank",
+      "provider": "ashby",
+      "slug": "nubank",
+      "careers_url": "https://jobs.ashbyhq.com/nubank"
+    },
+    {
+      "company": "Ddn",
+      "provider": "ashby",
+      "slug": "ddn",
+      "careers_url": "https://jobs.ashbyhq.com/ddn"
+    },
+    {
+      "company": "Langchain",
+      "provider": "ashby",
+      "slug": "langchain",
+      "careers_url": "https://jobs.ashbyhq.com/langchain"
+    },
+    {
+      "company": "Marianaminerals",
+      "provider": "ashby",
+      "slug": "marianaminerals",
+      "careers_url": "https://jobs.ashbyhq.com/marianaminerals"
+    },
+    {
+      "company": "Radiant Industries",
+      "provider": "ashby",
+      "slug": "radiant-industries",
+      "careers_url": "https://jobs.ashbyhq.com/radiant-industries"
+    },
+    {
+      "company": "Lambda",
+      "provider": "ashby",
+      "slug": "lambda",
+      "careers_url": "https://jobs.ashbyhq.com/lambda"
+    },
+    {
+      "company": "Fonio",
+      "provider": "ashby",
+      "slug": "fonio",
+      "careers_url": "https://jobs.ashbyhq.com/fonio"
+    },
+    {
+      "company": "Higgsfieldai",
+      "provider": "ashby",
+      "slug": "higgsfieldai",
+      "careers_url": "https://jobs.ashbyhq.com/higgsfieldai"
+    },
+    {
+      "company": "Headway",
+      "provider": "ashby",
+      "slug": "headway",
+      "careers_url": "https://jobs.ashbyhq.com/headway"
+    },
+    {
+      "company": "Kraken.Com",
+      "provider": "ashby",
+      "slug": "kraken.com",
+      "careers_url": "https://jobs.ashbyhq.com/kraken.com"
+    },
+    {
+      "company": "1Password",
+      "provider": "ashby",
+      "slug": "1password",
+      "careers_url": "https://jobs.ashbyhq.com/1password"
+    },
+    {
+      "company": "Antares",
+      "provider": "ashby",
+      "slug": "antares",
+      "careers_url": "https://jobs.ashbyhq.com/antares"
+    },
+    {
+      "company": "Fireworks",
+      "provider": "ashby",
+      "slug": "fireworks",
+      "careers_url": "https://jobs.ashbyhq.com/fireworks"
+    },
+    {
+      "company": "Handshake",
+      "provider": "ashby",
+      "slug": "handshake",
+      "careers_url": "https://jobs.ashbyhq.com/handshake"
+    },
+    {
+      "company": "Commure",
+      "provider": "ashby",
+      "slug": "commure",
+      "careers_url": "https://jobs.ashbyhq.com/commure"
+    },
+    {
+      "company": "Faculty",
+      "provider": "ashby",
+      "slug": "faculty",
+      "careers_url": "https://jobs.ashbyhq.com/faculty"
+    },
+    {
+      "company": "Happyrobot.Ai",
+      "provider": "ashby",
+      "slug": "happyrobot.ai",
+      "careers_url": "https://jobs.ashbyhq.com/happyrobot.ai"
+    },
+    {
+      "company": "Lovable",
+      "provider": "ashby",
+      "slug": "lovable",
+      "careers_url": "https://jobs.ashbyhq.com/lovable"
+    },
+    {
+      "company": "Dandy",
+      "provider": "ashby",
+      "slug": "dandy",
+      "careers_url": "https://jobs.ashbyhq.com/dandy"
+    },
+    {
+      "company": "Socure",
+      "provider": "ashby",
+      "slug": "socure",
+      "careers_url": "https://jobs.ashbyhq.com/socure"
+    },
+    {
+      "company": "Hinge Health",
+      "provider": "ashby",
+      "slug": "hinge-health",
+      "careers_url": "https://jobs.ashbyhq.com/hinge-health"
+    },
+    {
+      "company": "Profound",
+      "provider": "ashby",
+      "slug": "profound",
+      "careers_url": "https://jobs.ashbyhq.com/profound"
+    },
+    {
+      "company": "Vanta",
+      "provider": "ashby",
+      "slug": "vanta",
+      "careers_url": "https://jobs.ashbyhq.com/vanta"
+    },
+    {
+      "company": "Opengov",
+      "provider": "ashby",
+      "slug": "opengov",
+      "careers_url": "https://jobs.ashbyhq.com/opengov"
+    },
+    {
+      "company": "Dualentry",
+      "provider": "ashby",
+      "slug": "dualentry",
+      "careers_url": "https://jobs.ashbyhq.com/dualentry"
+    },
+    {
+      "company": "Arrive",
+      "provider": "ashby",
+      "slug": "arrive",
+      "careers_url": "https://jobs.ashbyhq.com/arrive"
+    },
+    {
+      "company": "Omnea",
+      "provider": "ashby",
+      "slug": "omnea",
+      "careers_url": "https://jobs.ashbyhq.com/omnea"
+    },
+    {
+      "company": "Satispay",
+      "provider": "ashby",
+      "slug": "satispay",
+      "careers_url": "https://jobs.ashbyhq.com/satispay"
+    },
+    {
+      "company": "Temporal",
+      "provider": "ashby",
+      "slug": "temporal",
+      "careers_url": "https://jobs.ashbyhq.com/temporal"
+    },
+    {
+      "company": "Bravehealth",
+      "provider": "ashby",
+      "slug": "bravehealth",
+      "careers_url": "https://jobs.ashbyhq.com/bravehealth"
+    },
+    {
+      "company": "Positive Development",
+      "provider": "ashby",
+      "slug": "positive-development",
+      "careers_url": "https://jobs.ashbyhq.com/positive-development"
+    },
+    {
+      "company": "Suno",
+      "provider": "ashby",
+      "slug": "suno",
+      "careers_url": "https://jobs.ashbyhq.com/suno"
+    },
+    {
+      "company": "Terac",
+      "provider": "ashby",
+      "slug": "terac",
+      "careers_url": "https://jobs.ashbyhq.com/terac"
+    },
+    {
+      "company": "Heidihealth.Com.Au",
+      "provider": "ashby",
+      "slug": "heidihealth.com.au",
+      "careers_url": "https://jobs.ashbyhq.com/heidihealth.com.au"
+    },
+    {
+      "company": "Lendable",
+      "provider": "ashby",
+      "slug": "lendable",
+      "careers_url": "https://jobs.ashbyhq.com/lendable"
+    },
+    {
+      "company": "Spoton",
+      "provider": "ashby",
+      "slug": "spoton",
+      "careers_url": "https://jobs.ashbyhq.com/spoton"
+    },
+    {
+      "company": "Ashby",
+      "provider": "ashby",
+      "slug": "ashby",
+      "careers_url": "https://jobs.ashbyhq.com/ashby"
+    },
+    {
+      "company": "Illumio",
+      "provider": "ashby",
+      "slug": "illumio",
+      "careers_url": "https://jobs.ashbyhq.com/illumio"
+    },
+    {
+      "company": "Sensor Tower",
+      "provider": "ashby",
+      "slug": "sensor-tower",
+      "careers_url": "https://jobs.ashbyhq.com/sensor-tower"
+    },
+    {
+      "company": "Factory",
+      "provider": "ashby",
+      "slug": "factory",
+      "careers_url": "https://jobs.ashbyhq.com/factory"
+    },
+    {
+      "company": "Cowboyspace",
+      "provider": "ashby",
+      "slug": "cowboyspace",
+      "careers_url": "https://jobs.ashbyhq.com/cowboyspace"
+    },
+    {
+      "company": "Range",
+      "provider": "ashby",
+      "slug": "range",
+      "careers_url": "https://jobs.ashbyhq.com/range"
+    },
+    {
+      "company": "Datadog",
+      "provider": "greenhouse",
+      "slug": "datadog",
+      "careers_url": "https://boards.greenhouse.io/datadog"
+    },
+    {
+      "company": "One Medical",
+      "provider": "greenhouse",
+      "slug": "onemedical",
+      "careers_url": "https://boards.greenhouse.io/onemedical"
+    },
+    {
+      "company": "Okta",
+      "provider": "greenhouse",
+      "slug": "okta",
+      "careers_url": "https://boards.greenhouse.io/okta"
+    },
+    {
+      "company": "Olsson",
+      "provider": "greenhouse",
+      "slug": "olsson",
+      "careers_url": "https://boards.greenhouse.io/olsson"
+    },
+    {
+      "company": "VML",
+      "provider": "greenhouse",
+      "slug": "wundermanthompson",
+      "careers_url": "https://boards.greenhouse.io/wundermanthompson"
+    },
+    {
+      "company": "Nebius",
+      "provider": "greenhouse",
+      "slug": "nebius",
+      "careers_url": "https://boards.greenhouse.io/nebius"
+    },
+    {
+      "company": "OKX",
+      "provider": "greenhouse",
+      "slug": "okx",
+      "careers_url": "https://boards.greenhouse.io/okx"
+    },
+    {
+      "company": "Stone - Linkedin",
+      "provider": "greenhouse",
+      "slug": "stone",
+      "careers_url": "https://boards.greenhouse.io/stone"
+    },
+    {
+      "company": "MongoDB",
+      "provider": "greenhouse",
+      "slug": "mongodb",
+      "careers_url": "https://boards.greenhouse.io/mongodb"
+    },
+    {
+      "company": "INFUSE",
+      "provider": "greenhouse",
+      "slug": "infuse",
+      "careers_url": "https://boards.greenhouse.io/infuse"
+    },
+    {
+      "company": "Everpure",
+      "provider": "greenhouse",
+      "slug": "purestorage",
+      "careers_url": "https://boards.greenhouse.io/purestorage"
+    },
+    {
+      "company": "Loenbro",
+      "provider": "greenhouse",
+      "slug": "loenbro",
+      "careers_url": "https://boards.greenhouse.io/loenbro"
+    },
+    {
+      "company": "Zscaler",
+      "provider": "greenhouse",
+      "slug": "zscaler",
+      "careers_url": "https://boards.greenhouse.io/zscaler"
+    },
+    {
+      "company": "Monks",
+      "provider": "greenhouse",
+      "slug": "monks",
+      "careers_url": "https://boards.greenhouse.io/monks"
+    },
+    {
+      "company": "Zipline",
+      "provider": "greenhouse",
+      "slug": "flyzipline",
+      "careers_url": "https://boards.greenhouse.io/flyzipline"
+    },
+    {
+      "company": "Braze",
+      "provider": "greenhouse",
+      "slug": "braze",
+      "careers_url": "https://boards.greenhouse.io/braze"
+    },
+    {
+      "company": "Toast",
+      "provider": "greenhouse",
+      "slug": "toast",
+      "careers_url": "https://boards.greenhouse.io/toast"
+    },
+    {
+      "company": "Verkada",
+      "provider": "greenhouse",
+      "slug": "verkada",
+      "careers_url": "https://boards.greenhouse.io/verkada"
+    },
+    {
+      "company": "Holder Construction",
+      "provider": "greenhouse",
+      "slug": "holderconstruction",
+      "careers_url": "https://boards.greenhouse.io/holderconstruction"
+    },
+    {
+      "company": "Skilled Wound Care",
+      "provider": "greenhouse",
+      "slug": "skilledwoundcare",
+      "careers_url": "https://boards.greenhouse.io/skilledwoundcare"
+    },
+    {
+      "company": "Samsara",
+      "provider": "greenhouse",
+      "slug": "samsara",
+      "careers_url": "https://boards.greenhouse.io/samsara"
+    },
+    {
+      "company": "HRtechX",
+      "provider": "greenhouse",
+      "slug": "hrtechx",
+      "careers_url": "https://boards.greenhouse.io/hrtechx"
+    },
+    {
+      "company": "Canonical",
+      "provider": "greenhouse",
+      "slug": "canonical",
+      "careers_url": "https://boards.greenhouse.io/canonical"
+    },
+    {
+      "company": "AvePoint",
+      "provider": "greenhouse",
+      "slug": "avepoint",
+      "careers_url": "https://boards.greenhouse.io/avepoint"
+    },
+    {
+      "company": "Picnic",
+      "provider": "greenhouse",
+      "slug": "teampicnic",
+      "careers_url": "https://boards.greenhouse.io/teampicnic"
+    },
+    {
+      "company": "SpaceXSI",
+      "provider": "greenhouse",
+      "slug": "xai",
+      "careers_url": "https://boards.greenhouse.io/xai"
+    },
+    {
+      "company": "Veterinary Practice Partners",
+      "provider": "greenhouse",
+      "slug": "veterinarypracticepartners",
+      "careers_url": "https://boards.greenhouse.io/veterinarypracticepartners"
+    },
+    {
+      "company": "Lush Handmade Cosmetics",
+      "provider": "greenhouse",
+      "slug": "lush",
+      "careers_url": "https://boards.greenhouse.io/lush"
+    },
+    {
+      "company": "SentinelOne",
+      "provider": "greenhouse",
+      "slug": "sentinellabs",
+      "careers_url": "https://boards.greenhouse.io/sentinellabs"
+    },
+    {
+      "company": "Sezzle",
+      "provider": "greenhouse",
+      "slug": "sezzle",
+      "careers_url": "https://boards.greenhouse.io/sezzle"
+    },
+    {
+      "company": "TEGNA Inc.",
+      "provider": "greenhouse",
+      "slug": "tegnainc",
+      "careers_url": "https://boards.greenhouse.io/tegnainc"
+    },
+    {
+      "company": "Nscale",
+      "provider": "greenhouse",
+      "slug": "nscaleoperationsukltd",
+      "careers_url": "https://boards.greenhouse.io/nscaleoperationsukltd"
+    },
+    {
+      "company": "Ally Behavior Centers",
+      "provider": "greenhouse",
+      "slug": "allybehaviorcenters",
+      "careers_url": "https://boards.greenhouse.io/allybehaviorcenters"
+    },
+    {
+      "company": "Results Physiotherapy",
+      "provider": "greenhouse",
+      "slug": "resultspt",
+      "careers_url": "https://boards.greenhouse.io/resultspt"
+    },
+    {
+      "company": "Power Digital",
+      "provider": "greenhouse",
+      "slug": "powerdigitalmarketing",
+      "careers_url": "https://boards.greenhouse.io/powerdigitalmarketing"
+    },
+    {
+      "company": "Roblox",
+      "provider": "greenhouse",
+      "slug": "roblox",
+      "careers_url": "https://boards.greenhouse.io/roblox"
+    },
+    {
+      "company": "Brex",
+      "provider": "greenhouse",
+      "slug": "brex",
+      "careers_url": "https://boards.greenhouse.io/brex"
+    },
+    {
+      "company": "SetSales",
+      "provider": "greenhouse",
+      "slug": "setsales",
+      "careers_url": "https://boards.greenhouse.io/setsales"
+    },
+    {
+      "company": "BTG Pactual",
+      "provider": "greenhouse",
+      "slug": "btgpactual",
+      "careers_url": "https://boards.greenhouse.io/btgpactual"
+    },
+    {
+      "company": "Charlie Health",
+      "provider": "greenhouse",
+      "slug": "charliehealth",
+      "careers_url": "https://boards.greenhouse.io/charliehealth"
+    },
+    {
+      "company": "ACCEL Schools",
+      "provider": "greenhouse",
+      "slug": "accelschools",
+      "careers_url": "https://boards.greenhouse.io/accelschools"
+    },
+    {
+      "company": "K2 Space",
+      "provider": "greenhouse",
+      "slug": "k2spacecorporation",
+      "careers_url": "https://boards.greenhouse.io/k2spacecorporation"
+    },
+    {
+      "company": "Affirm",
+      "provider": "greenhouse",
+      "slug": "affirm",
+      "careers_url": "https://boards.greenhouse.io/affirm"
+    },
+    {
+      "company": "Curaleaf",
+      "provider": "greenhouse",
+      "slug": "curaleaf",
+      "careers_url": "https://boards.greenhouse.io/curaleaf"
+    },
+    {
+      "company": "Formlabs",
+      "provider": "greenhouse",
+      "slug": "formlabs",
+      "careers_url": "https://boards.greenhouse.io/formlabs"
+    },
+    {
+      "company": "Adyen",
+      "provider": "greenhouse",
+      "slug": "adyen",
+      "careers_url": "https://boards.greenhouse.io/adyen"
+    },
+    {
+      "company": "Xometry",
+      "provider": "greenhouse",
+      "slug": "xometry",
+      "careers_url": "https://boards.greenhouse.io/xometry"
+    },
+    {
+      "company": "Natera",
+      "provider": "greenhouse",
+      "slug": "natera",
+      "careers_url": "https://boards.greenhouse.io/natera"
+    },
+    {
+      "company": "The Scion Group",
+      "provider": "greenhouse",
+      "slug": "thesciongroupllc",
+      "careers_url": "https://boards.greenhouse.io/thesciongroupllc"
+    },
+    {
+      "company": "ALTEN Technology USA",
+      "provider": "greenhouse",
+      "slug": "altentechnologyusa",
+      "careers_url": "https://boards.greenhouse.io/altentechnologyusa"
+    },
+    {
+      "company": "Coinbase",
+      "provider": "greenhouse",
+      "slug": "coinbase",
+      "careers_url": "https://boards.greenhouse.io/coinbase"
+    },
+    {
+      "company": "Celonis",
+      "provider": "greenhouse",
+      "slug": "celonis",
+      "careers_url": "https://boards.greenhouse.io/celonis"
+    },
+    {
+      "company": "Navan",
+      "provider": "greenhouse",
+      "slug": "tripactions",
+      "careers_url": "https://boards.greenhouse.io/tripactions"
+    },
+    {
+      "company": "Jane Street",
+      "provider": "greenhouse",
+      "slug": "janestreet",
+      "careers_url": "https://boards.greenhouse.io/janestreet"
+    },
+    {
+      "company": "Oscar Health",
+      "provider": "greenhouse",
+      "slug": "oscar",
+      "careers_url": "https://boards.greenhouse.io/oscar"
+    },
+    {
+      "company": "Omnicom Media",
+      "provider": "greenhouse",
+      "slug": "mediabrands",
+      "careers_url": "https://boards.greenhouse.io/mediabrands"
+    },
+    {
+      "company": "iCapital",
+      "provider": "greenhouse",
+      "slug": "icapitalnetwork",
+      "careers_url": "https://boards.greenhouse.io/icapitalnetwork"
+    },
+    {
+      "company": "Veeam Software",
+      "provider": "greenhouse",
+      "slug": "veeamsoftware",
+      "careers_url": "https://boards.greenhouse.io/veeamsoftware"
+    },
+    {
+      "company": "WPP",
+      "provider": "greenhouse",
+      "slug": "wpp",
+      "careers_url": "https://boards.greenhouse.io/wpp"
+    },
+    {
+      "company": "AlphaSense",
+      "provider": "greenhouse",
+      "slug": "alphasense",
+      "careers_url": "https://boards.greenhouse.io/alphasense"
+    },
+    {
+      "company": "Joya",
+      "provider": "greenhouse",
+      "slug": "joya",
+      "careers_url": "https://boards.greenhouse.io/joya"
+    },
+    {
+      "company": "Point72",
+      "provider": "greenhouse",
+      "slug": "point72",
+      "careers_url": "https://boards.greenhouse.io/point72"
+    },
+    {
+      "company": "True Anomaly",
+      "provider": "greenhouse",
+      "slug": "trueanomalyinc",
+      "careers_url": "https://boards.greenhouse.io/trueanomalyinc"
+    },
+    {
+      "company": "Scout Motors",
+      "provider": "greenhouse",
+      "slug": "scoutmotors",
+      "careers_url": "https://boards.greenhouse.io/scoutmotors"
+    },
+    {
+      "company": "Graphcore",
+      "provider": "greenhouse",
+      "slug": "graphcore",
+      "careers_url": "https://boards.greenhouse.io/graphcore"
+    },
+    {
+      "company": "The Specialty Alliance",
+      "provider": "greenhouse",
+      "slug": "thegialliancemanagementllccompany",
+      "careers_url": "https://boards.greenhouse.io/thegialliancemanagementllccompany"
+    },
+    {
+      "company": "PlayStation Global",
+      "provider": "greenhouse",
+      "slug": "sonyinteractiveentertainmentglobal",
+      "careers_url": "https://boards.greenhouse.io/sonyinteractiveentertainmentglobal"
+    },
+    {
+      "company": "Axiom Talent Platform",
+      "provider": "greenhouse",
+      "slug": "axiomtalentplatform",
+      "careers_url": "https://boards.greenhouse.io/axiomtalentplatform"
+    },
+    {
+      "company": "Wolt - English",
+      "provider": "greenhouse",
+      "slug": "wolt",
+      "careers_url": "https://boards.greenhouse.io/wolt"
+    },
+    {
+      "company": "Qube Research & Technologies",
+      "provider": "greenhouse",
+      "slug": "quberesearchandtechnologies",
+      "careers_url": "https://boards.greenhouse.io/quberesearchandtechnologies"
+    },
+    {
+      "company": "The N2 Company",
+      "provider": "greenhouse",
+      "slug": "n2publishingglassdoor",
+      "careers_url": "https://boards.greenhouse.io/n2publishingglassdoor"
+    },
+    {
+      "company": "Flexport",
+      "provider": "greenhouse",
+      "slug": "flexport",
+      "careers_url": "https://boards.greenhouse.io/flexport"
+    },
+    {
+      "company": "Marksman Security LLC",
+      "provider": "greenhouse",
+      "slug": "marksman",
+      "careers_url": "https://boards.greenhouse.io/marksman"
+    },
+    {
+      "company": "Airbnb",
+      "provider": "greenhouse",
+      "slug": "airbnb",
+      "careers_url": "https://boards.greenhouse.io/airbnb"
+    },
+    {
+      "company": "Burson",
+      "provider": "greenhouse",
+      "slug": "bursonglobalcareers",
+      "careers_url": "https://boards.greenhouse.io/bursonglobalcareers"
+    },
+    {
+      "company": "Jensen Hughes",
+      "provider": "greenhouse",
+      "slug": "jensenhughes",
+      "careers_url": "https://boards.greenhouse.io/jensenhughes"
+    },
+    {
+      "company": "Atwell, LLC",
+      "provider": "greenhouse",
+      "slug": "atwellgroup",
+      "careers_url": "https://boards.greenhouse.io/atwellgroup"
+    },
+    {
+      "company": "Astranis",
+      "provider": "greenhouse",
+      "slug": "astranis",
+      "careers_url": "https://boards.greenhouse.io/astranis"
+    },
+    {
+      "company": "NICE",
+      "provider": "greenhouse",
+      "slug": "nice",
+      "careers_url": "https://boards.greenhouse.io/nice"
+    },
+    {
+      "company": "Vast",
+      "provider": "greenhouse",
+      "slug": "vast",
+      "careers_url": "https://boards.greenhouse.io/vast"
+    },
+    {
+      "company": "On",
+      "provider": "greenhouse",
+      "slug": "onrunning",
+      "careers_url": "https://boards.greenhouse.io/onrunning"
+    },
+    {
+      "company": "Mejuri",
+      "provider": "greenhouse",
+      "slug": "mejuri",
+      "careers_url": "https://boards.greenhouse.io/mejuri"
+    },
+    {
+      "company": "Scopely",
+      "provider": "greenhouse",
+      "slug": "scopely",
+      "careers_url": "https://boards.greenhouse.io/scopely"
+    },
+    {
+      "company": "Voyager Technologies, Inc.",
+      "provider": "greenhouse",
+      "slug": "voyagertechnologiesinc",
+      "careers_url": "https://boards.greenhouse.io/voyagertechnologiesinc"
+    },
+    {
+      "company": "Lyft",
+      "provider": "greenhouse",
+      "slug": "lyft",
+      "careers_url": "https://boards.greenhouse.io/lyft"
+    },
+    {
+      "company": "DigitalOcean",
+      "provider": "greenhouse",
+      "slug": "digitalocean98",
+      "careers_url": "https://boards.greenhouse.io/digitalocean98"
+    },
+    {
+      "company": "Astera Labs",
+      "provider": "greenhouse",
+      "slug": "asteralabs",
+      "careers_url": "https://boards.greenhouse.io/asteralabs"
+    },
+    {
+      "company": "Via",
+      "provider": "greenhouse",
+      "slug": "via",
+      "careers_url": "https://boards.greenhouse.io/via"
+    },
+    {
+      "company": "Otterbein SeniorLife",
+      "provider": "greenhouse",
+      "slug": "otterbein",
+      "careers_url": "https://boards.greenhouse.io/otterbein"
+    },
+    {
+      "company": "Monster Energy",
+      "provider": "greenhouse",
+      "slug": "monsterenergy",
+      "careers_url": "https://boards.greenhouse.io/monsterenergy"
+    },
+    {
+      "company": "Precision Medicine Group",
+      "provider": "greenhouse",
+      "slug": "precisionmedicinegroup",
+      "careers_url": "https://boards.greenhouse.io/precisionmedicinegroup"
+    },
+    {
+      "company": "Scale AI",
+      "provider": "greenhouse",
+      "slug": "scaleai",
+      "careers_url": "https://boards.greenhouse.io/scaleai"
+    },
+    {
+      "company": "Oldcastle BuildingEnvelope",
+      "provider": "greenhouse",
+      "slug": "oldcastlebuildingenvelope",
+      "careers_url": "https://boards.greenhouse.io/oldcastlebuildingenvelope"
+    },
+    {
+      "company": "Silverado",
+      "provider": "greenhouse",
+      "slug": "silverado",
+      "careers_url": "https://boards.greenhouse.io/silverado"
+    },
+    {
+      "company": "Syska Hennessy Group",
+      "provider": "greenhouse",
+      "slug": "syskahennessy",
+      "careers_url": "https://boards.greenhouse.io/syskahennessy"
+    },
+    {
+      "company": "Atoms",
+      "provider": "greenhouse",
+      "slug": "atoms",
+      "careers_url": "https://boards.greenhouse.io/atoms"
+    },
+    {
+      "company": "BetterHelp",
+      "provider": "greenhouse",
+      "slug": "betterhelp",
+      "careers_url": "https://boards.greenhouse.io/betterhelp"
+    },
+    {
+      "company": "Reddit",
+      "provider": "greenhouse",
+      "slug": "reddit",
+      "careers_url": "https://boards.greenhouse.io/reddit"
+    },
+    {
+      "company": "DRW",
+      "provider": "greenhouse",
+      "slug": "drweng",
+      "careers_url": "https://boards.greenhouse.io/drweng"
+    },
+    {
+      "company": "DEPT®",
+      "provider": "greenhouse",
+      "slug": "dept",
+      "careers_url": "https://boards.greenhouse.io/dept"
+    },
+    {
+      "company": "Robinhood",
+      "provider": "greenhouse",
+      "slug": "robinhood",
+      "careers_url": "https://boards.greenhouse.io/robinhood"
+    },
+    {
+      "company": "Pinterest",
+      "provider": "greenhouse",
+      "slug": "pinterest",
+      "careers_url": "https://boards.greenhouse.io/pinterest"
+    },
+    {
+      "company": "CHAOS Industries",
+      "provider": "greenhouse",
+      "slug": "chaosindustries",
+      "careers_url": "https://boards.greenhouse.io/chaosindustries"
+    },
+    {
+      "company": "ARCO Design/Build",
+      "provider": "greenhouse",
+      "slug": "arcodb",
+      "careers_url": "https://boards.greenhouse.io/arcodb"
+    },
+    {
+      "company": "Helsing",
+      "provider": "greenhouse",
+      "slug": "helsing",
+      "careers_url": "https://boards.greenhouse.io/helsing"
+    },
+    {
+      "company": "Plata Card",
+      "provider": "greenhouse",
+      "slug": "platacard",
+      "careers_url": "https://boards.greenhouse.io/platacard"
+    },
+    {
+      "company": "Appian Corporation",
+      "provider": "greenhouse",
+      "slug": "appian",
+      "careers_url": "https://boards.greenhouse.io/appian"
+    },
+    {
+      "company": "Fivetran",
+      "provider": "greenhouse",
+      "slug": "fivetran",
+      "careers_url": "https://boards.greenhouse.io/fivetran"
+    },
+    {
+      "company": "CookUnity",
+      "provider": "greenhouse",
+      "slug": "cookunity",
+      "careers_url": "https://boards.greenhouse.io/cookunity"
+    },
+    {
+      "company": "Apex Companies",
+      "provider": "greenhouse",
+      "slug": "apexcompanies",
+      "careers_url": "https://boards.greenhouse.io/apexcompanies"
+    },
+    {
+      "company": "Wilson Elser - Attorneys",
+      "provider": "greenhouse",
+      "slug": "wilsonelserattorneys",
+      "careers_url": "https://boards.greenhouse.io/wilsonelserattorneys"
+    },
+    {
+      "company": "C6 Bank",
+      "provider": "greenhouse",
+      "slug": "c6bank",
+      "careers_url": "https://boards.greenhouse.io/c6bank"
+    },
+    {
+      "company": "42 North Dental",
+      "provider": "greenhouse",
+      "slug": "42northdental",
+      "careers_url": "https://boards.greenhouse.io/42northdental"
+    },
+    {
+      "company": "Bybit",
+      "provider": "greenhouse",
+      "slug": "bybit",
+      "careers_url": "https://boards.greenhouse.io/bybit"
+    },
+    {
+      "company": "Snap! Mobile, Inc.",
+      "provider": "greenhouse",
+      "slug": "snapmobileinc",
+      "careers_url": "https://boards.greenhouse.io/snapmobileinc"
+    },
+    {
+      "company": "Klaviyo",
+      "provider": "greenhouse",
+      "slug": "klaviyo",
+      "careers_url": "https://boards.greenhouse.io/klaviyo"
+    },
+    {
+      "company": "AnthroMed Education (School Services)",
+      "provider": "greenhouse",
+      "slug": "anthromededucation",
+      "careers_url": "https://boards.greenhouse.io/anthromededucation"
+    },
+    {
+      "company": "CannonDesign",
+      "provider": "greenhouse",
+      "slug": "cannondesign",
+      "careers_url": "https://boards.greenhouse.io/cannondesign"
+    },
+    {
+      "company": "Reformation",
+      "provider": "greenhouse",
+      "slug": "reformation",
+      "careers_url": "https://boards.greenhouse.io/reformation"
+    },
+    {
+      "company": "Anaplan",
+      "provider": "greenhouse",
+      "slug": "anaplan",
+      "careers_url": "https://boards.greenhouse.io/anaplan"
+    },
+    {
+      "company": "Lakefield Veterinary Group",
+      "provider": "greenhouse",
+      "slug": "lakefieldveterinarygroup",
+      "careers_url": "https://boards.greenhouse.io/lakefieldveterinarygroup"
+    },
+    {
+      "company": "Clara",
+      "provider": "greenhouse",
+      "slug": "clara",
+      "careers_url": "https://boards.greenhouse.io/clara"
+    },
+    {
+      "company": "Quince",
+      "provider": "greenhouse",
+      "slug": "quince",
+      "careers_url": "https://boards.greenhouse.io/quince"
+    },
+    {
+      "company": "Benesch",
+      "provider": "greenhouse",
+      "slug": "alfredbeneschco",
+      "careers_url": "https://boards.greenhouse.io/alfredbeneschco"
+    },
+    {
+      "company": "Datavant",
+      "provider": "greenhouse",
+      "slug": "datavant2",
+      "careers_url": "https://boards.greenhouse.io/datavant2"
+    },
+    {
+      "company": "Inter Carreiras",
+      "provider": "greenhouse",
+      "slug": "inter",
+      "careers_url": "https://boards.greenhouse.io/inter"
+    },
+    {
+      "company": "AEG Worldwide",
+      "provider": "greenhouse",
+      "slug": "aegworldwide",
+      "careers_url": "https://boards.greenhouse.io/aegworldwide"
+    },
+    {
+      "company": "Anthropic",
+      "provider": "greenhouse",
+      "slug": "anthropic",
+      "careers_url": "https://boards.greenhouse.io/anthropic"
+    },
+    {
+      "company": "100Ms",
+      "provider": "lever",
+      "slug": "100ms",
+      "careers_url": "https://jobs.lever.co/100ms"
+    },
+    {
+      "company": "Achievers",
+      "provider": "lever",
+      "slug": "achievers",
+      "careers_url": "https://jobs.lever.co/achievers"
+    },
+    {
+      "company": "Airalo",
+      "provider": "lever",
+      "slug": "airalo",
+      "careers_url": "https://jobs.lever.co/airalo"
+    },
+    {
+      "company": "Airslate",
+      "provider": "lever",
+      "slug": "airslate",
+      "careers_url": "https://jobs.lever.co/airslate"
+    },
+    {
+      "company": "Aledade",
+      "provider": "lever",
+      "slug": "aledade",
+      "careers_url": "https://jobs.lever.co/aledade"
+    },
+    {
+      "company": "Anchorage",
+      "provider": "lever",
+      "slug": "anchorage",
+      "careers_url": "https://jobs.lever.co/anchorage"
+    },
+    {
+      "company": "Animocabrands",
+      "provider": "lever",
+      "slug": "animocabrands",
+      "careers_url": "https://jobs.lever.co/animocabrands"
+    },
+    {
+      "company": "Appen 2",
+      "provider": "lever",
+      "slug": "appen-2",
+      "careers_url": "https://jobs.lever.co/appen-2"
+    },
+    {
+      "company": "Applydigital",
+      "provider": "lever",
+      "slug": "applydigital",
+      "careers_url": "https://jobs.lever.co/applydigital"
+    },
+    {
+      "company": "Binance",
+      "provider": "lever",
+      "slug": "binance",
+      "careers_url": "https://jobs.lever.co/binance"
+    },
+    {
+      "company": "Bluelightconsulting",
+      "provider": "lever",
+      "slug": "bluelightconsulting",
+      "careers_url": "https://jobs.lever.co/bluelightconsulting"
+    },
+    {
+      "company": "Bounteous",
+      "provider": "lever",
+      "slug": "bounteous",
+      "careers_url": "https://jobs.lever.co/bounteous"
+    },
+    {
+      "company": "Brighte",
+      "provider": "lever",
+      "slug": "brighte",
+      "careers_url": "https://jobs.lever.co/brighte"
+    },
+    {
+      "company": "Brightmachines",
+      "provider": "lever",
+      "slug": "brightmachines",
+      "careers_url": "https://jobs.lever.co/brightmachines"
+    },
+    {
+      "company": "Brooksrunning",
+      "provider": "lever",
+      "slug": "brooksrunning",
+      "careers_url": "https://jobs.lever.co/brooksrunning"
+    },
+    {
+      "company": "Businesswire",
+      "provider": "lever",
+      "slug": "businesswire",
+      "careers_url": "https://jobs.lever.co/businesswire"
+    },
+    {
+      "company": "Cfsenergy",
+      "provider": "lever",
+      "slug": "cfsenergy",
+      "careers_url": "https://jobs.lever.co/cfsenergy"
+    },
+    {
+      "company": "Chownow",
+      "provider": "lever",
+      "slug": "chownow",
+      "careers_url": "https://jobs.lever.co/chownow"
+    },
+    {
+      "company": "Ciandt",
+      "provider": "lever",
+      "slug": "ciandt",
+      "careers_url": "https://jobs.lever.co/ciandt"
+    },
+    {
+      "company": "Coinmarketcap",
+      "provider": "lever",
+      "slug": "coinmarketcap",
+      "careers_url": "https://jobs.lever.co/coinmarketcap"
+    },
+    {
+      "company": "Crypto",
+      "provider": "lever",
+      "slug": "crypto",
+      "careers_url": "https://jobs.lever.co/crypto"
+    },
+    {
+      "company": "Deputy",
+      "provider": "lever",
+      "slug": "deputy",
+      "careers_url": "https://jobs.lever.co/deputy"
+    },
+    {
+      "company": "Despegar",
+      "provider": "lever",
+      "slug": "despegar",
+      "careers_url": "https://jobs.lever.co/despegar"
+    },
+    {
+      "company": "Easypost 2",
+      "provider": "lever",
+      "slug": "easypost-2",
+      "careers_url": "https://jobs.lever.co/easypost-2"
+    },
+    {
+      "company": "Ekimetrics",
+      "provider": "lever",
+      "slug": "ekimetrics",
+      "careers_url": "https://jobs.lever.co/ekimetrics"
+    },
+    {
+      "company": "Emma Sleep",
+      "provider": "lever",
+      "slug": "emma-sleep",
+      "careers_url": "https://jobs.lever.co/emma-sleep"
+    },
+    {
+      "company": "Epoch Ai",
+      "provider": "lever",
+      "slug": "epoch-ai",
+      "careers_url": "https://jobs.lever.co/epoch-ai"
+    },
+    {
+      "company": "Farfetch",
+      "provider": "lever",
+      "slug": "farfetch",
+      "careers_url": "https://jobs.lever.co/farfetch"
+    },
+    {
+      "company": "Field Ai",
+      "provider": "lever",
+      "slug": "field-ai",
+      "careers_url": "https://jobs.lever.co/field-ai"
+    },
+    {
+      "company": "Filevine",
+      "provider": "lever",
+      "slug": "filevine",
+      "careers_url": "https://jobs.lever.co/filevine"
+    },
+    {
+      "company": "Fiscalnote",
+      "provider": "lever",
+      "slug": "fiscalnote",
+      "careers_url": "https://jobs.lever.co/fiscalnote"
+    },
+    {
+      "company": "Gopuff",
+      "provider": "lever",
+      "slug": "gopuff",
+      "careers_url": "https://jobs.lever.co/gopuff"
+    },
+    {
+      "company": "Hermeus",
+      "provider": "lever",
+      "slug": "hermeus",
+      "careers_url": "https://jobs.lever.co/hermeus"
+    },
+    {
+      "company": "Includedhealth",
+      "provider": "lever",
+      "slug": "includedhealth",
+      "careers_url": "https://jobs.lever.co/includedhealth"
+    },
+    {
+      "company": "Jumpcloud",
+      "provider": "lever",
+      "slug": "jumpcloud",
+      "careers_url": "https://jobs.lever.co/jumpcloud"
+    },
+    {
+      "company": "Matillion",
+      "provider": "lever",
+      "slug": "matillion",
+      "careers_url": "https://jobs.lever.co/matillion"
+    },
+    {
+      "company": "Megaport",
+      "provider": "lever",
+      "slug": "megaport",
+      "careers_url": "https://jobs.lever.co/megaport"
+    },
+    {
+      "company": "Mendix",
+      "provider": "lever",
+      "slug": "mendix",
+      "careers_url": "https://jobs.lever.co/mendix"
+    },
+    {
+      "company": "Mindtickle",
+      "provider": "lever",
+      "slug": "mindtickle",
+      "careers_url": "https://jobs.lever.co/mindtickle"
+    },
+    {
+      "company": "Moonpay",
+      "provider": "lever",
+      "slug": "moonpay",
+      "careers_url": "https://jobs.lever.co/moonpay"
+    },
+    {
+      "company": "Ninjavan",
+      "provider": "lever",
+      "slug": "ninjavan",
+      "careers_url": "https://jobs.lever.co/ninjavan"
+    },
+    {
+      "company": "Nium",
+      "provider": "lever",
+      "slug": "nium",
+      "careers_url": "https://jobs.lever.co/nium"
+    },
+    {
+      "company": "Offchainlabs",
+      "provider": "lever",
+      "slug": "offchainlabs",
+      "careers_url": "https://jobs.lever.co/offchainlabs"
+    },
+    {
+      "company": "Outreach",
+      "provider": "lever",
+      "slug": "outreach",
+      "careers_url": "https://jobs.lever.co/outreach"
+    },
+    {
+      "company": "Palantir",
+      "provider": "lever",
+      "slug": "palantir",
+      "careers_url": "https://jobs.lever.co/palantir"
+    },
+    {
+      "company": "People Ai",
+      "provider": "lever",
+      "slug": "people-ai",
+      "careers_url": "https://jobs.lever.co/people-ai"
+    },
+    {
+      "company": "Perforce",
+      "provider": "lever",
+      "slug": "perforce",
+      "careers_url": "https://jobs.lever.co/perforce"
+    },
+    {
+      "company": "Pigment",
+      "provider": "lever",
+      "slug": "pigment",
+      "careers_url": "https://jobs.lever.co/pigment"
+    },
+    {
+      "company": "Ro",
+      "provider": "lever",
+      "slug": "ro",
+      "careers_url": "https://jobs.lever.co/ro"
+    },
+    {
+      "company": "Rover",
+      "provider": "lever",
+      "slug": "rover",
+      "careers_url": "https://jobs.lever.co/rover"
+    },
+    {
+      "company": "Saviynt",
+      "provider": "lever",
+      "slug": "saviynt",
+      "careers_url": "https://jobs.lever.co/saviynt"
+    },
+    {
+      "company": "Scaleway",
+      "provider": "lever",
+      "slug": "scaleway",
+      "careers_url": "https://jobs.lever.co/scaleway"
+    },
+    {
+      "company": "Shieldai",
+      "provider": "lever",
+      "slug": "shieldai",
+      "careers_url": "https://jobs.lever.co/shieldai"
+    },
+    {
+      "company": "Sonarsource",
+      "provider": "lever",
+      "slug": "sonarsource",
+      "careers_url": "https://jobs.lever.co/sonarsource"
+    },
+    {
+      "company": "Spotify",
+      "provider": "lever",
+      "slug": "spotify",
+      "careers_url": "https://jobs.lever.co/spotify"
+    },
+    {
+      "company": "Theathletic",
+      "provider": "lever",
+      "slug": "theathletic",
+      "careers_url": "https://jobs.lever.co/theathletic"
+    },
+    {
+      "company": "Veeva",
+      "provider": "lever",
+      "slug": "veeva",
+      "careers_url": "https://jobs.lever.co/veeva"
+    },
+    {
+      "company": "Waabi",
+      "provider": "lever",
+      "slug": "waabi",
+      "careers_url": "https://jobs.lever.co/waabi"
+    }
+  ]
+}

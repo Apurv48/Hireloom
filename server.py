@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import io
+import gzip
 import json
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -25,6 +27,17 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "public"
+JOB_INDEX_PATH = ROOT / "data" / "jobs.json.gz"
+JOB_INDEX_MANIFEST_PATH = ROOT / "data" / "job_index.json"
+JOB_INDEX_REMOTE_URL = os.environ.get(
+    "HIRELOOM_JOB_INDEX_URL",
+    "https://github.com/Apurv48/Hireloom/releases/download/job-index/jobs.json.gz" if os.environ.get("VERCEL") else "",
+)
+JOB_INDEX_REMOTE_CACHE_SECONDS = 4 * 60 * 60
+JOB_INDEX_MAX_BYTES = 12 * 1024 * 1024
+JOB_INDEX_DOWNLOAD_PATH = Path(tempfile.gettempdir()) / "hireloom-jobs.json.gz"
+JOB_INDEX_DOWNLOAD_LOCK = threading.Lock()
+JOB_INDEX_LAST_CHECK = 0.0
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8765"))
 # One CV per account is stored in Supabase Storage (free tier: 1 GB), so keep uploads small.
@@ -39,10 +52,6 @@ SKILLS = [
     "Excel", "Tableau", "Power BI", "Looker", "Product analytics", "Figma",
 ]
 
-FEED_CACHE: dict[str, tuple[float, list[dict[str, object]], str]] = {}
-# Public, employer-managed career boards. Search queries and CV data stay off these requests.
-CAREER_BOARDS = {"twilio": "Twilio", "rubrik": "Rubrik", "gitlab": "GitLab"}
-FEED_CACHE_LOCKS = {board: threading.Lock() for board in CAREER_BOARDS}
 FEED_USER_AGENT = "HireloomMVP/1.0 (local personal job search)"
 
 
@@ -119,6 +128,8 @@ def posted_label(value: object) -> tuple[str, str]:
                 timestamp = parsed.timestamp()
             except ValueError:
                 timestamp = float(raw)
+        if timestamp > 10_000_000_000:
+            timestamp /= 1000
         age_days = max(0, int((time.time() - timestamp) / 86400))
         posted = "Today" if age_days == 0 else "Yesterday" if age_days == 1 else f"{age_days} days ago"
         return posted, str(int(timestamp))
@@ -186,54 +197,134 @@ def job_mode(is_remote: bool, text: str) -> str:
     return "Not listed"
 
 
-def load_career_board(board: str) -> list[dict[str, object]]:
-    company = CAREER_BOARDS[board]
-    payload = fetch_json(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true")
-    if not isinstance(payload.get("jobs"), list):
-        raise ValueError("Invalid career board response")
-    jobs = []
-    for record in payload["jobs"]:
-        if not isinstance(record, dict) or not isinstance(record.get("id"), int):
-            continue
+def normalize_public_job(source: dict[str, object], record: dict[str, object]) -> dict[str, object] | None:
+    """Normalize one Greenhouse, Ashby, or Lever posting for the generated search index."""
+    provider = str(source.get("provider", ""))
+    slug = str(source.get("slug", ""))
+    company = plain_text(source.get("company"), 160)
+    careers_url = safe_https_url(source.get("careers_url"))
+    record_id = record.get("id")
+    provider_mode = ""
+    if not company or not slug or record_id in (None, ""):
+        return None
+
+    if provider == "greenhouse":
         title = plain_text(record.get("title"), 240)
-        url = safe_https_url(record.get("absolute_url"))
-        if not title or not url:
-            continue
         place = record.get("location") or {}
         location = plain_text(place.get("name"), 500) if isinstance(place, dict) else ""
-        description = plain_text(unescape(record.get("content") or ""), 6000)
-        mode_text = f"{title} {location}"
-        remote = bool(re.search(r"\bremote\b|work from home", mode_text, re.I))
-        mode = job_mode(remote, mode_text)
-        posted, published = posted_label(record.get("first_published"))
-        jobs.append({
-            "id": f"{board}-{record['id']}", "title": title, "company": company,
-            "location": location or "Location not listed", "mode": mode,
-            "eligible": eligibility_for(location, remote), "languages": [],
-            "source": company, "sourceUrl": f"https://job-boards.greenhouse.io/{board}",
-            "route": "Company career page", "url": url, "posted": posted, "published": published,
-            "years": "Not listed", "match": 65, "skills": known_skills(f"{title} {description}"),
-            "description": description or "See the employer’s posting for details.",
-            "highlights": [], "reason": "Review the requirements and work location on the company career page.",
-            "isLive": True,
-        })
-    return jobs
+        url = safe_https_url(record.get("absolute_url"))
+        description = plain_text(unescape(record.get("content") or ""), 1200)
+        published_value = record.get("first_published") or record.get("updated_at")
+        remote = bool(re.search(r"\bremote\b|work from home", f"{title} {location}", re.I))
+    elif provider == "ashby":
+        title = plain_text(record.get("title"), 240)
+        primary = plain_text(record.get("location"), 300)
+        secondary = record.get("secondaryLocations") or []
+        extra_locations = [plain_text(item.get("location") if isinstance(item, dict) else item, 160) for item in secondary if item]
+        location = ", ".join(dict.fromkeys(value for value in [primary, *extra_locations] if value))
+        url = safe_https_url(record.get("jobUrl") or record.get("applyUrl"))
+        description = plain_text(record.get("descriptionPlain") or record.get("descriptionHtml"), 1200)
+        published_value = record.get("publishedAt")
+        remote = bool(record.get("isRemote")) or bool(re.search(r"\bremote\b|work from home", f"{title} {location}", re.I))
+    elif provider == "lever":
+        title = plain_text(record.get("text"), 240)
+        categories = record.get("categories") or {}
+        if not isinstance(categories, dict):
+            categories = {}
+        all_locations = categories.get("allLocations") or []
+        location_values = [plain_text(categories.get("location"), 300)]
+        location_values.extend(plain_text(value, 160) for value in all_locations if value)
+        location = ", ".join(dict.fromkeys(value for value in location_values if value))
+        url = safe_https_url(record.get("hostedUrl") or record.get("applyUrl"))
+        description = plain_text(record.get("descriptionPlain") or record.get("description"), 1200)
+        published_value = record.get("createdAt")
+        workplace_type = str(record.get("workplaceType", "")).lower()
+        provider_mode = {"remote": "Remote", "hybrid": "Hybrid", "on-site": "Onsite", "onsite": "Onsite"}.get(workplace_type, "")
+        remote = workplace_type == "remote" or bool(re.search(r"\bremote\b|work from home", f"{title} {location}", re.I))
+    else:
+        return None
+
+    if not title or not url:
+        return None
+    mode = provider_mode or job_mode(remote, f"{title} {location}")
+    posted, published = posted_label(published_value)
+    return {
+        "id": f"{provider}-{slug}-{record_id}", "title": title, "company": company,
+        "location": location or "Location not listed", "mode": mode,
+        "eligible": eligibility_for(location, remote), "languages": [],
+        "source": company, "sourceUrl": careers_url, "route": "Company career page", "url": url,
+        "posted": posted, "published": published, "years": "Not listed", "match": 65,
+        "skills": known_skills(f"{title} {description}"),
+        "description": description or "See the employer’s posting for details.",
+        "highlights": [], "reason": "Review the requirements and work location on the company career page.",
+        "isLive": True,
+    }
 
 
-def cached_feed(board: str) -> tuple[list[dict[str, object]], str, bool]:
-    with FEED_CACHE_LOCKS[board]:
-        cached = FEED_CACHE.get(board)
-        now = time.monotonic()
-        if cached:
-            saved_at, jobs, error = cached
-            if now - saved_at < (60 if error else 1800):
-                return jobs, error, True
+@lru_cache(maxsize=4)
+def _load_job_index(path: str, mtime_ns: int) -> dict[str, object]:
+    del mtime_ns
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
+        raise ValueError("The company job index is invalid.")
+    return payload
+
+
+@lru_cache(maxsize=2)
+def _load_bundled_job_index(mtime_ns: int) -> dict[str, object]:
+    del mtime_ns
+    payload = json.loads(JOB_INDEX_MANIFEST_PATH.read_text(encoding="utf-8"))
+    files = payload.get("files") if isinstance(payload, dict) else None
+    if not isinstance(files, list) or not files:
+        raise ValueError("The bundled company job index is invalid.")
+    jobs = []
+    for filename in files:
+        path = ROOT / "data" / Path(str(filename)).name
+        shard = _load_job_index(str(path), path.stat().st_mtime_ns)
+        jobs.extend(shard["jobs"])
+    payload["jobs"] = jobs
+    if len(jobs) != int(payload.get("job_count", -1)):
+        raise ValueError("The bundled company job index is incomplete.")
+    return payload
+
+
+def _refresh_remote_job_index() -> Path | None:
+    global JOB_INDEX_LAST_CHECK
+    if not JOB_INDEX_REMOTE_URL:
+        return None
+    now = time.monotonic()
+    if JOB_INDEX_DOWNLOAD_PATH.exists() and now - JOB_INDEX_LAST_CHECK < JOB_INDEX_REMOTE_CACHE_SECONDS:
+        return JOB_INDEX_DOWNLOAD_PATH
+    with JOB_INDEX_DOWNLOAD_LOCK:
+        if JOB_INDEX_DOWNLOAD_PATH.exists() and now - JOB_INDEX_LAST_CHECK < JOB_INDEX_REMOTE_CACHE_SECONDS:
+            return JOB_INDEX_DOWNLOAD_PATH
+        JOB_INDEX_LAST_CHECK = now
         try:
-            jobs, error = load_career_board(board), ""
-        except (OSError, ValueError, TimeoutError):
-            jobs, error = [], "Career page temporarily unavailable."
-        FEED_CACHE[board] = time.monotonic(), jobs, error
-        return jobs, error, False
+            request = Request(JOB_INDEX_REMOTE_URL, headers={"Accept": "application/gzip", "User-Agent": FEED_USER_AGENT})
+            with urlopen(request, timeout=8) as response:
+                content_length = int(response.headers.get("Content-Length", "0") or 0)
+                if content_length > JOB_INDEX_MAX_BYTES:
+                    raise ValueError("Remote job index is too large.")
+                payload = response.read(JOB_INDEX_MAX_BYTES + 1)
+            if len(payload) > JOB_INDEX_MAX_BYTES:
+                raise ValueError("Remote job index is too large.")
+            temporary = JOB_INDEX_DOWNLOAD_PATH.with_suffix(".tmp")
+            temporary.write_bytes(payload)
+            _load_job_index(str(temporary), temporary.stat().st_mtime_ns)
+            temporary.replace(JOB_INDEX_DOWNLOAD_PATH)
+            return JOB_INDEX_DOWNLOAD_PATH
+        except (OSError, ValueError, EOFError, json.JSONDecodeError):
+            return JOB_INDEX_DOWNLOAD_PATH if JOB_INDEX_DOWNLOAD_PATH.exists() else None
+
+
+def load_job_index() -> dict[str, object]:
+    remote = _refresh_remote_job_index()
+    if remote:
+        return _load_job_index(str(remote), remote.stat().st_mtime_ns)
+    if JOB_INDEX_PATH.exists():
+        return _load_job_index(str(JOB_INDEX_PATH), JOB_INDEX_PATH.stat().st_mtime_ns)
+    return _load_bundled_job_index(JOB_INDEX_MANIFEST_PATH.stat().st_mtime_ns)
 
 
 def job_search_tokens(query: str) -> list[str]:
@@ -419,17 +510,21 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
 
 
 def search_live_jobs(query: str, location_hint: str = "") -> dict[str, object]:
-    from concurrent.futures import ThreadPoolExecutor
-
-    with ThreadPoolExecutor(max_workers=len(CAREER_BOARDS)) as pool:
-        results = list(pool.map(cached_feed, CAREER_BOARDS))
-    all_jobs = []
-    sources = []
-    for company, (items, error, cached) in zip(CAREER_BOARDS.values(), results):
-        sources.append({"name": company, "ok": not error, "count": len(items), "cached": cached, "error": error})
-        all_jobs.extend(items)
-    unique = {str(job["id"]): job for job in all_jobs}
-    return {"jobs": filter_live_jobs(list(unique.values()), query, location_hint), "sources": sources}
+    index = load_job_index()
+    jobs = [job for job in index["jobs"] if isinstance(job, dict)]
+    source_count = int(index.get("source_count", 0))
+    successful = int(index.get("successful_sources", source_count))
+    failed = index.get("failed_sources") or []
+    source = {
+        "name": f"{source_count} company career pages",
+        "ok": bool(jobs),
+        "count": len(jobs),
+        "cached": True,
+        "updated": str(index.get("generated_at", "")),
+        "error": f"{len(failed)} sources were unavailable during the last refresh." if failed else "",
+        "successful": successful,
+    }
+    return {"jobs": filter_live_jobs(jobs, query, location_hint), "sources": [source]}
 
 
 def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:

@@ -1,0 +1,39 @@
+name: Refresh company jobs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "data/company_boards.json"
+      - "scripts/refresh_job_index.py"
+      - ".github/workflows/refresh-jobs.yml"
+  schedule:
+    - cron: "17 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-company-jobs
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python scripts/refresh_job_index.py
+      - run: python -m unittest discover -s tests -v
+      - name: Publish refreshed index without growing Git history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view job-index >/dev/null 2>&1 || gh release create job-index --title "Hireloom job index" --notes "Automatically refreshed public company career listings."
+          gh release upload job-index data/jobs.json.gz --clobber

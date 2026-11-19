@@ -3,3 +3,4 @@ __pycache__/
 .vercel/
 .env
 .env.local
+/data/jobs.json.gz

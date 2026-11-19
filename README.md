@@ -53,7 +53,9 @@ Known gaps: no email-change flow, no "change password" form for users who are al
 
 ## Company career search
 
-Hireloom fetches public job postings published by Twilio, Rubrik and GitLab through their own Greenhouse boards. See `CAREER_BOARDS` in `server.py` for the supported employers. Requests go to a fixed list of boards. Matching runs in Hireloom and only the employer’s application link opens when a user chooses **Track and apply**.
+Hireloom searches a generated index of public postings from 300 fixed company career boards. The registry in `data/company_boards.json` contains 135 Greenhouse, 105 Ashby and 60 Lever boards, including India-focused and global employers. No job-search API key is used. Matching runs inside Hireloom and only the employer’s original application link opens when a user chooses **Track and apply**.
+
+The `Refresh company jobs` GitHub Actions workflow builds the first release index when this feature reaches `main`, then rebuilds it every day from those public employer feeds. It replaces the `job-index` release asset without adding a new large binary to Git history. The hosted API downloads that asset at most once every four hours per warm process and falls back to the bundled launch index if GitHub is unavailable. Searches read the generated index, so a user request does not send their prompt, profile or CV to 300 companies and does not wait for 300 network calls. Run `python scripts/refresh_job_index.py` to rebuild both index formats manually. The refresh keeps the previous release asset if fewer than 270 sources respond successfully.
 
 An explicit location in chat takes precedence over profile locations. A profile without locations gets the default markets, including India. Listings include the employer's posting date and work mode when supplied. The employer controls vacancy availability.
 
@@ -77,13 +79,13 @@ An explicit location in chat takes precedence over profile locations. A profile 
 
 ## Demo boundaries
 
-Company boards are refreshed every 30 minutes per warm server process. Failed boards are retried after one minute. A successful search can contain zero matches. If all boards fail, Hireloom displays an error and the prompt can be rerun.
+The hosted job index is refreshed daily. A company can change its board URL, remove a role between refreshes or temporarily reject a refresh request. Hireloom records unavailable sources in the index metadata, and the employer’s page remains the final source of truth. A successful search can contain zero matches.
 
 Voice transcription uses the browser's speech-recognition service when available. The selected language affects recognition, while common German, Hindi, and Hinglish job-search terms are normalized locally. The browser or its speech provider may process audio; Hireloom does not save voice recordings. Search starts only after the user reviews the transcript and presses Search. Type search remains available in browsers without speech recognition.
 
 Local demo credentials use a salted PBKDF2 hash in browser storage. Match scores and CV parsing use rules. Text extraction requires a PDF with selectable text. The candidate completes the application on the employer’s site and confirms submission in Tracker. Supabase accounts sync the tracker across devices. Local demo accounts keep it in their browser.
 
-Employer board reference: [Greenhouse Job Board API](https://developers.greenhouse.io/job-board.html).
+Employer board references: [Greenhouse Job Board API](https://developers.greenhouse.io/job-board.html), [Lever Postings API](https://github.com/lever/postings-api), and [Ashby Job Postings API](https://developers.ashbyhq.com/docs/public-job-posting-api). The initial fixed registry was selected from SignalFeed’s public [ATS company directory](https://signalfeed.github.io/jobs/companies-using-greenhouse-lever-ashby/) and is stored in this repository so runtime behavior never depends on that directory.
 
 No package manager or frontend build step is required.
 
