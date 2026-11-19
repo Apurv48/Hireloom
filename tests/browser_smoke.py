@@ -49,7 +49,7 @@ def main():
             action = lambda name: page.locator(f'[data-action="{name}"]').first.click()
             nav = lambda name: page.locator(f'button.nav-link[data-nav="{name}"]').click()
 
-            def signup(name):
+            def signup(name, save_password=False):
                 action("show-signup")
                 expect(page.locator("#signup-email")).to_have_attribute("autocomplete", "username")
                 expect(page.locator("#signup-password")).to_have_attribute("autocomplete", "new-password")
@@ -59,9 +59,16 @@ def main():
                 page.locator("#signup-password").fill("local-fixture-only")
                 page.locator("#signup-confirm").fill("local-fixture-only")
                 page.locator("[name=localConsent]").check()
+                expect(page.locator("[name=savePassword]")).not_to_be_checked()
+                offers_before = page.evaluate("window.__credentialOffers.length")
+                if save_password:
+                    page.locator("[name=savePassword]").check()
                 page.locator("#signup-form .login-submit").click()
                 expect(page.locator("#search-query")).to_be_visible()
-                page.wait_for_function("window.__credentialOffers.length > 0")
+                if save_password:
+                    page.wait_for_function("before => window.__credentialOffers.length > before", arg=offers_before)
+                else:
+                    assert page.evaluate("window.__credentialOffers.length") == offers_before
 
             def logout():
                 action("toggle-menu")
@@ -69,7 +76,7 @@ def main():
                 action("confirm-logout")
                 expect(page.locator("#login-form")).to_be_visible()
 
-            signup("first")
+            signup("first", save_password=True)
             page.locator("#search-query").fill("Python in Bengaluru")
             page.locator("#search-query").press("Enter")
             expect(page.locator(".job-card")).to_have_count(1)
@@ -87,7 +94,12 @@ def main():
             expect(page.locator(".conversation-turn")).to_have_count(2)
             action("save-job")
             nav("saved")
+            page.set_viewport_size({"width": 1280, "height": 360})
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            assert page.evaluate("window.scrollY") > 0
             page.locator(".job-title-button").click()
+            page.wait_for_function("window.scrollY === 0")
+            page.set_viewport_size({"width": 1280, "height": 720})
             with page.expect_popup() as opened:
                 action("track-listing")
             opened.value.close()
@@ -114,7 +126,9 @@ def main():
             page.reload()
             page.locator("#login-email").fill("first@example.org")
             page.locator("#login-password").fill("local-fixture-only")
+            expect(page.locator("[name=savePassword]")).not_to_be_checked()
             page.locator("#login-form .login-submit").click()
+            assert page.evaluate("window.__credentialOffers.length") == 0
             nav("tracker")
             expect(page.locator(".status-pill")).to_have_text("Applied")
             nav("saved")

@@ -518,6 +518,15 @@ function renderPlans() {
 }
 
 function attachViewEvents() {
+  function addPasswordSaveConsent(form) {
+    if(!form||!form.querySelector('input[type="password"]')||form.querySelector('[name="savePassword"]'))return;
+    const submit=form.querySelector('.login-submit');
+    if(!submit)return;
+    const consent=document.createElement('label');
+    consent.className='consent-row password-save-consent';
+    consent.innerHTML='<input type="checkbox" name="savePassword" /> <span>Allow this browser to save and autofill my password.</span>';
+    submit.before(consent);
+  }
   function submitAuth(form, handler) {
     form.addEventListener('submit',async event=>{
       event.preventDefault();
@@ -526,14 +535,17 @@ function attachViewEvents() {
     });
   }
   const loginForm=$('#login-form');
+  addPasswordSaveConsent(loginForm);
   if(loginForm) submitAuth(loginForm,loginUser);
   const forgotForm=$('#forgot-form');
   if(forgotForm) submitAuth(forgotForm,cloudForgotPassword);
   const verifyForm=$('#verify-form');
   if(verifyForm) submitAuth(verifyForm,cloudVerifyCode);
   const resetForm=$('#reset-form');
+  addPasswordSaveConsent(resetForm);
   if(resetForm) submitAuth(resetForm,cloudResetPassword);
   const signupForm=$('#signup-form');
+  addPasswordSaveConsent(signupForm);
   if(signupForm) submitAuth(signupForm,createAccount);
   const searchForm=$('#search-form');
   if(searchForm) searchForm.addEventListener('submit',(event)=>{event.preventDefault();if(voiceState.status==='listening'){toast('Stop listening and review the transcript before searching.','error');return;}const raw=String(new FormData(searchForm).get('query')||'').trim();if(!raw)return;const fromVoice=voiceState.status==='review';const query=fromVoice?normalizeVoiceQuery(raw):raw;if(fromVoice&&query!==raw)toast('Common Hindi and German job-search terms were normalized for matching.','success');runSearch(query);});
@@ -638,8 +650,8 @@ function finishLogin(account) {
   state=loadLocalWorkspace(account);
   authData.lastEmail=account.email;saveAuth();state.profile.email=account.email;state.loggedOut=false;state.view='chat';session=true;persist();authMode='login';authMessage='';if(getChat()?.hasSearch)startChatSearches(getChat());else render();toast('Welcome to your Hireloom workspace.','success');
 }
-function offerBrowserCredential(email,password,name='') {
-  if(!window.PasswordCredential||!navigator.credentials?.store)return;
+function offerBrowserCredential(email,password,name='',allowed=false) {
+  if(!allowed||!window.PasswordCredential||!navigator.credentials?.store)return;
   try {
     const credential=new PasswordCredential({id:email,name:name||email,password});
     void navigator.credentials.store(credential).catch(()=>{});
@@ -654,7 +666,7 @@ async function loginUser(formData) {
   try {
     const hash=await passwordHash(password,fromHex(account.salt),account.iterations);
     if(!sameHash(hash,account.hash)){authMessage='That password does not match this local account.';render();return;}
-    offerBrowserCredential(email,password,account.name);
+    offerBrowserCredential(email,password,account.name,formData.get('savePassword')==='on');
     finishLogin(account);
   } catch(error) { authMessage=error.message||'Could not verify this password in the current browser.';render(); }
 }
@@ -671,7 +683,7 @@ async function createAccount(formData) {
     const salt=crypto.getRandomValues(new Uint8Array(16)),iterations=210000;
     const account={name,email,salt:toHex(salt),hash:await passwordHash(password,salt,iterations),iterations,createdAt:new Date().toISOString()};
     authData.accounts.push(account);authData.lastEmail=email;saveAuth();
-    offerBrowserCredential(email,password,name);
+    offerBrowserCredential(email,password,name,formData.get('savePassword')==='on');
     finishLogin(account);
   } catch(error) { authMessage=error.message||'Could not create the local account.';render(); }
 }
@@ -732,7 +744,7 @@ async function cloudLogin(formData) {
   const button=$('.login-submit');if(button){button.disabled=true;button.textContent='Logging in…';}
   const result=await cloud.signIn(email,password);
   if(result.error){authMessage=result.error;render();return;}
-  offerBrowserCredential(email,password,result.user?.name);
+  offerBrowserCredential(email,password,result.user?.name,formData.get('savePassword')==='on');
   await enterCloudWorkspace(result.user);
 }
 async function cloudSignup(formData) {
@@ -746,7 +758,7 @@ async function cloudSignup(formData) {
   const result=await cloud.signUp(email,password,name);
   if(result.error){authMessage=result.error;render();return;}
   authData.lastEmail=email;saveAuth();
-  offerBrowserCredential(email,password,name);
+  offerBrowserCredential(email,password,name,formData.get('savePassword')==='on');
   if(!result.signedIn){authMode='login';authMessage='✓ Account created. Check your email to confirm your address, then log in.';render();return;}
   await enterCloudWorkspace(result.user,name);
 }
@@ -784,7 +796,7 @@ async function cloudResetPassword(formData) {
   const result=await cloud.updatePassword(password);
   if(result.error){authMessage=result.error;render();return;}
   const user=result.user||await cloud.getUser();
-  offerBrowserCredential(authDraft.email||authData.lastEmail,password,user?.name);
+  offerBrowserCredential(authDraft.email||authData.lastEmail,password,user?.name,formData.get('savePassword')==='on');
   if(!user){authMode='login';authMessage='✓ Password updated. Log in with your new password.';render();return;}
   await enterCloudWorkspace(user);
   toast('Password updated. You are signed in.','success');
@@ -1086,6 +1098,10 @@ function showCvDraftReview() {
   });
 }
 function setView(view) { cancelVoiceSearch(false);state.view=view;state.sidebarOpen=false;persist();render();window.scrollTo({top:0,behavior:'smooth'}); }
+function renderFromTop() {
+  render();
+  requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'auto'}));
+}
 function downloadData() {
   const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),profile:state.profile,chats:state.chats,applications:state.applications,savedJobs:state.savedJobs,settings:state.settings},null,2)],{type:'application/json'});
   const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='hireloom-demo-data.json';link.click();URL.revokeObjectURL(link.href);toast('Your local data export is ready.','success');
@@ -1102,7 +1118,7 @@ function downloadApprovedCv(jobId) {
 document.addEventListener('click',(event)=>{
   const nav=event.target.closest('[data-nav]');if(nav){cancelVoiceSearch(false);state.view=['tracker','saved'].includes(nav.dataset.nav)?nav.dataset.nav:'chat';state.sidebarOpen=false;persist();if(state.view==='chat'&&getChat()?.hasSearch)startChatSearches(getChat());else render();return;}
   const chatButton=event.target.closest('[data-chat-id]');if(chatButton){cancelVoiceSearch(false);state.activeChatId=chatButton.dataset.chatId;state.view='chat';state.sidebarOpen=false;persist();if(getChat()?.hasSearch)startChatSearches(getChat());else render();return;}
-  const jobButton=event.target.closest('[data-job]');if(jobButton){cancelVoiceSearch(false);state.selectedJobId=jobButton.dataset.job;state.view='job';state.sidebarOpen=false;persist();render();return;}
+  const jobButton=event.target.closest('[data-job]');if(jobButton){cancelVoiceSearch(false);state.selectedJobId=jobButton.dataset.job;state.view='job';state.sidebarOpen=false;persist();renderFromTop();return;}
   const tab=event.target.closest('[data-profile-tab]');if(tab){state.profileTab=tab.dataset.profileTab;render();return;}
   const settingTab=event.target.closest('[data-settings-tab]');if(settingTab){state.settingsTab=settingTab.dataset.settingsTab;render();return;}
   const trackerFilter=event.target.closest('[data-tracker-filter]');if(trackerFilter){state.trackerFilter=trackerFilter.dataset.trackerFilter;render();return;}
