@@ -157,6 +157,8 @@ def main():
             expect(page.locator(".conversation-turn")).to_have_count(2)
             action("save-job")
             page.set_viewport_size({"width": 1280, "height": 360})
+            # A single saved card can fit entirely inside a desktop viewport.
+            page.add_style_tag(content="body { min-height: 150vh; }")
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             assert page.evaluate("window.scrollY") > 0
             nav("saved")
