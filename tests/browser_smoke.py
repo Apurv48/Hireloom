@@ -154,6 +154,9 @@ def main():
             assert page.evaluate("window.scrollY") > 0
             page.locator(".job-title-button").click()
             page.wait_for_function("window.scrollY === 0")
+            expect(page.locator(".job-detail-hero")).to_be_visible()
+            expect(page.locator(".score-card")).to_have_count(2)
+            expect(page.locator(".fit-recommendation")).to_be_visible()
             page.set_viewport_size({"width": 1280, "height": 720})
             with page.expect_popup() as opened:
                 action("track-listing")
