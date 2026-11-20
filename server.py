@@ -21,6 +21,8 @@ from html import unescape
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from uuid import UUID
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
@@ -31,25 +33,43 @@ JOB_INDEX_PATH = ROOT / "data" / "jobs.json.gz"
 JOB_INDEX_MANIFEST_PATH = ROOT / "data" / "job_index.json"
 JOB_INDEX_REMOTE_URL = os.environ.get(
     "HIRELOOM_JOB_INDEX_URL",
-    "https://github.com/Apurv48/Hireloom/releases/download/job-index/jobs.json.gz" if os.environ.get("VERCEL") else "",
+    "",
 )
 JOB_INDEX_REMOTE_CACHE_SECONDS = 4 * 60 * 60
 JOB_INDEX_MAX_BYTES = 12 * 1024 * 1024
 JOB_INDEX_DOWNLOAD_PATH = Path(tempfile.gettempdir()) / "hireloom-jobs.json.gz"
 JOB_INDEX_DOWNLOAD_LOCK = threading.Lock()
-JOB_INDEX_LAST_CHECK = 0.0
+JOB_INDEX_LAST_CHECK = float("-inf")
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8765"))
 # One CV per account is stored in Supabase Storage (free tier: 1 GB), so keep uploads small.
 # This also sits well under Vercel's 4.5 MB request limit. Keep in sync with public/app.js, public/cloud.js and supabase/schema.sql.
 MAX_FILE_BYTES = 1 * 1024 * 1024
 MAX_REQUEST_BYTES = MAX_FILE_BYTES + 128 * 1024
+MAX_PDF_PAGES = 30
+CV_RATE_LIMIT = 12
+CV_RATE_WINDOW_SECONDS = 60
+CV_RATE_LOCK = threading.Lock()
+CV_RATE_BUCKETS: dict[str, list[float]] = {}
+SEARCH_RATE_LIMIT = 30
 
 SKILLS = [
     "Python", "SQL", "JavaScript", "TypeScript", "React", "Node.js", "REST APIs",
     "APIs", "AWS", "Azure", "GCP", "Airflow", "dbt", "Spark", "Docker",
     "Kubernetes", "Data pipelines", "Machine learning", "MLflow", "Jupyter",
     "Excel", "Tableau", "Power BI", "Looker", "Product analytics", "Figma",
+    "Accounting", "Bookkeeping", "Financial analysis", "Auditing", "Taxation",
+    "Sales", "Business development", "Customer service", "Retail", "Merchandising",
+    "Marketing", "Digital marketing", "SEO", "Content writing", "Public relations",
+    "Human resources", "Recruitment", "Payroll", "Training", "Project management",
+    "Operations", "Procurement", "Supply chain", "Logistics", "Inventory management",
+    "Quality assurance", "Quality control", "Lean manufacturing", "AutoCAD", "SolidWorks",
+    "Mechanical engineering", "Electrical engineering", "Civil engineering", "Construction",
+    "Nursing", "Patient care", "Pharmacy", "Clinical research", "Medical coding",
+    "Teaching", "Curriculum development", "Counselling", "Research", "Legal research",
+    "Contract management", "Compliance", "Risk management", "Hospitality", "Food safety",
+    "Event management", "Real estate", "Relationship management", "Communication",
+    "Leadership", "Negotiation", "Problem solving", "Team management",
 ]
 
 FEED_USER_AGENT = "HireloomMVP/1.0 (local personal job search)"
@@ -80,7 +100,7 @@ class JobDescriptionText(HTMLParser):
             self.parts.append(data)
 
 
-def plain_text(value: object, limit: int = 2400) -> str:
+def plain_text(value: object, limit: int | None = 2400) -> str:
     parser = JobDescriptionText()
     try:
         parser.feed(str(value or ""))
@@ -139,7 +159,7 @@ def posted_label(value: object) -> tuple[str, str]:
 
 def known_skills(text: str) -> list[str]:
     lowered = text.lower()
-    return [skill for skill in SKILLS if re.search(r"(?<![\w+#.])" + re.escape(skill.lower()) + r"(?![\w+#.])", lowered)]
+    return [skill for skill in SKILLS if re.search(r"(?<![\w+#])" + re.escape(skill.lower()) + r"(?![\w+#])", lowered)]
 
 
 COUNTRY_CODES = {
@@ -178,7 +198,7 @@ def eligibility_for(location: str, remote: bool) -> list[str]:
             found.append(country)
     if re.search(r"\beurope\b", lowered):
         found.append("Europe")
-    if "worldwide" in lowered or "anywhere" in lowered or "global" in lowered:
+    if re.search(r"\b(?:worldwide|anywhere|global)\b", lowered):
         found.append("Worldwide")
     if "european union" in lowered or re.search(r"\beu\b", lowered):
         found.append("European Union")
@@ -213,7 +233,7 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         place = record.get("location") or {}
         location = plain_text(place.get("name"), 500) if isinstance(place, dict) else ""
         url = safe_https_url(record.get("absolute_url"))
-        description = plain_text(unescape(record.get("content") or ""), 1200)
+        description = plain_text(unescape(record.get("content") or ""), None)
         published_value = record.get("first_published") or record.get("updated_at")
         remote = bool(re.search(r"\bremote\b|work from home", f"{title} {location}", re.I))
     elif provider == "ashby":
@@ -223,7 +243,7 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         extra_locations = [plain_text(item.get("location") if isinstance(item, dict) else item, 160) for item in secondary if item]
         location = ", ".join(dict.fromkeys(value for value in [primary, *extra_locations] if value))
         url = safe_https_url(record.get("jobUrl") or record.get("applyUrl"))
-        description = plain_text(record.get("descriptionPlain") or record.get("descriptionHtml"), 1200)
+        description = plain_text(record.get("descriptionPlain") or record.get("descriptionHtml"), None)
         published_value = record.get("publishedAt")
         remote = bool(record.get("isRemote")) or bool(re.search(r"\bremote\b|work from home", f"{title} {location}", re.I))
     elif provider == "lever":
@@ -236,7 +256,7 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         location_values.extend(plain_text(value, 160) for value in all_locations if value)
         location = ", ".join(dict.fromkeys(value for value in location_values if value))
         url = safe_https_url(record.get("hostedUrl") or record.get("applyUrl"))
-        description = plain_text(record.get("descriptionPlain") or record.get("description"), 1200)
+        description = plain_text(record.get("descriptionPlain") or record.get("description"), None)
         published_value = record.get("createdAt")
         workplace_type = str(record.get("workplaceType", "")).lower()
         provider_mode = {"remote": "Remote", "hybrid": "Hybrid", "on-site": "Onsite", "onsite": "Onsite"}.get(workplace_type, "")
@@ -255,7 +275,7 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         "source": company, "sourceUrl": careers_url, "route": "Company career page", "url": url,
         "posted": posted, "published": published, "years": "Not listed", "match": 65,
         "skills": known_skills(f"{title} {description}"),
-        "description": description or "See the employer’s posting for details.",
+        "description": description[:1200] or "See the employer’s posting for details.",
         "highlights": [], "reason": "Review the requirements and work location on the company career page.",
         "isLive": True,
     }
@@ -293,29 +313,33 @@ def _refresh_remote_job_index() -> Path | None:
     global JOB_INDEX_LAST_CHECK
     if not JOB_INDEX_REMOTE_URL:
         return None
-    now = time.monotonic()
-    if JOB_INDEX_DOWNLOAD_PATH.exists() and now - JOB_INDEX_LAST_CHECK < JOB_INDEX_REMOTE_CACHE_SECONDS:
-        return JOB_INDEX_DOWNLOAD_PATH
-    with JOB_INDEX_DOWNLOAD_LOCK:
-        if JOB_INDEX_DOWNLOAD_PATH.exists() and now - JOB_INDEX_LAST_CHECK < JOB_INDEX_REMOTE_CACHE_SECONDS:
-            return JOB_INDEX_DOWNLOAD_PATH
-        JOB_INDEX_LAST_CHECK = now
+    cached = JOB_INDEX_DOWNLOAD_PATH if JOB_INDEX_DOWNLOAD_PATH.exists() else None
+    interval = JOB_INDEX_REMOTE_CACHE_SECONDS if cached else 60
+    if time.monotonic() - JOB_INDEX_LAST_CHECK >= interval and JOB_INDEX_DOWNLOAD_LOCK.acquire(blocking=False):
+        JOB_INDEX_LAST_CHECK = time.monotonic()
+        threading.Thread(target=_download_remote_index, daemon=True).start()
+    return cached
+
+
+def _download_remote_index() -> None:
+    try:
+        request = Request(JOB_INDEX_REMOTE_URL, headers={"User-Agent": FEED_USER_AGENT})
+        with urlopen(request, timeout=2) as response:
+            payload = response.read(JOB_INDEX_MAX_BYTES + 1)
+        if len(payload) > JOB_INDEX_MAX_BYTES:
+            return
+        with tempfile.NamedTemporaryFile(dir=JOB_INDEX_DOWNLOAD_PATH.parent, delete=False) as output:
+            temporary = Path(output.name)
+            output.write(payload)
         try:
-            request = Request(JOB_INDEX_REMOTE_URL, headers={"Accept": "application/gzip", "User-Agent": FEED_USER_AGENT})
-            with urlopen(request, timeout=8) as response:
-                content_length = int(response.headers.get("Content-Length", "0") or 0)
-                if content_length > JOB_INDEX_MAX_BYTES:
-                    raise ValueError("Remote job index is too large.")
-                payload = response.read(JOB_INDEX_MAX_BYTES + 1)
-            if len(payload) > JOB_INDEX_MAX_BYTES:
-                raise ValueError("Remote job index is too large.")
-            temporary = JOB_INDEX_DOWNLOAD_PATH.with_suffix(".tmp")
-            temporary.write_bytes(payload)
             _load_job_index(str(temporary), temporary.stat().st_mtime_ns)
             temporary.replace(JOB_INDEX_DOWNLOAD_PATH)
-            return JOB_INDEX_DOWNLOAD_PATH
-        except (OSError, ValueError, EOFError, json.JSONDecodeError):
-            return JOB_INDEX_DOWNLOAD_PATH if JOB_INDEX_DOWNLOAD_PATH.exists() else None
+        finally:
+            temporary.unlink(missing_ok=True)
+    except (OSError, ValueError, EOFError):
+        pass
+    finally:
+        JOB_INDEX_DOWNLOAD_LOCK.release()
 
 
 def load_job_index() -> dict[str, object]:
@@ -439,7 +463,9 @@ def split_location_terms(value: str) -> list[str]:
 
 
 def query_location_terms(query: str) -> list[str]:
-    lowered = normalize_location(query)
+    searchable = re.sub(r"\bus\b", lambda m: "us" if re.search(r"\b(?:in|near|across|within|the)\s+$", query[:m.start()], re.I) else " ", query)
+    searchable = re.sub(r"\bglobal\b(?!\s*(?:$|jobs?\b|roles?\b|remote\b))", " ", searchable, flags=re.I)
+    lowered = normalize_location(searchable)
     recognized = [alias for aliases in LOCATION_ALIASES.values() for alias in aliases if re.search(r"(?<!\w)" + re.escape(normalize_location(alias)) + r"(?!\w)", lowered)]
     match = re.search(r"\b(?:in|near|around|based\s+in|located\s+in)\s+(.+?)(?=\s+\b(?:remote|hybrid|onsite|on-site|english|german|french|spanish|hindi|junior|senior|for|with|jobs?|roles?|positions?|experience|years?)\b|[,;.!?]|$)", query, re.I)
     explicit: list[str] = []
@@ -503,14 +529,15 @@ def resolve_search(query: str, location_hint: str = "") -> tuple[list[str], list
     return locations, [token for token in job_search_tokens(query) if token not in location_tokens]
 
 
-def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: str = "", work_modes: list[str] | None = None) -> list[dict[str, object]]:
+def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: str = "", work_modes: list[str] | None = None, profile_skills: tuple[str, ...] = ()) -> list[dict[str, object]]:
     lowered = query.lower()
     locations, tokens = resolve_search(query, location_hint)
     prefer_india = not query_location_terms(query)
     mode = "Remote" if re.search(r"\bremote\b", lowered) else "Hybrid" if re.search(r"\bhybrid\b", lowered) else "Onsite" if re.search(r"\b(on[- ]?site|in[- ]office)\b", lowered) else ""
     allowed_modes = {item for item in (work_modes or []) if item in WORK_MODES}
     matchers = [token_matchers(token) for token in tokens]
-    ranked: list[tuple[int, int, int, dict[str, object]]] = []
+    preferred_skills = set(profile_skills)
+    ranked = []
     for job in jobs:
         if mode and job.get("mode") != mode:
             continue
@@ -531,12 +558,22 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
         except (TypeError, ValueError):
             freshness = 0
         in_india = int(prefer_india and ("India" in job.get("eligible", []) or "india" in normalize_location(job.get("location", "")).split()))
-        ranked.append((score, in_india, freshness, job))
-    ranked.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
-    return [job for _, _, _, job in ranked[:60]]
+        required = [str(skill).strip().lower() for skill in job.get("skills", [])]
+        fit = sum(skill in preferred_skills for skill in required) / len(required) if required else 0.5
+        ranked.append((score, fit if preferred_skills else 0, in_india, freshness, job))
+    ranked.sort(key=lambda item: item[:4], reverse=True)
+    return [job for *_, job in ranked[:60]]
 
 
-def search_live_jobs(query: str, location_hint: str = "", work_modes: list[str] | None = None) -> dict[str, object]:
+def search_live_jobs(query: str, location_hint: str = "", work_modes: list[str] | None = None, profile_skills: tuple[str, ...] = ()) -> dict[str, object]:
+    index = load_job_index()
+    generated = str(index.get("generated_at", ""))
+    return _search_live_jobs_cached(query, location_hint, tuple(work_modes or ()), generated, profile_skills)
+
+
+@lru_cache(maxsize=256)
+def _search_live_jobs_cached(query: str, location_hint: str, work_modes: tuple[str, ...], generated: str, profile_skills: tuple[str, ...]) -> dict[str, object]:
+    del generated
     index = load_job_index()
     jobs = [job for job in index["jobs"] if isinstance(job, dict)]
     source_count = int(index.get("source_count", 0))
@@ -551,7 +588,7 @@ def search_live_jobs(query: str, location_hint: str = "", work_modes: list[str] 
         "error": f"{len(failed)} sources were unavailable during the last refresh." if failed else "",
         "successful": successful,
     }
-    return {"jobs": filter_live_jobs(jobs, query, location_hint, work_modes), "sources": [source]}
+    return {"jobs": filter_live_jobs(jobs, query, location_hint, list(work_modes), profile_skills), "sources": [source]}
 
 
 def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:
@@ -565,8 +602,12 @@ def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:
             raise RuntimeError("PDF support needs pdfplumber. Install it with: python -m pip install pdfplumber") from exc
         try:
             with pdfplumber.open(io.BytesIO(payload)) as pdf:
+                if len(pdf.pages) > MAX_PDF_PAGES:
+                    raise ValueError(f"The CV must be {MAX_PDF_PAGES} pages or fewer.")
                 text = "\n".join(page.extract_text() or "" for page in pdf.pages)
                 return text, len(pdf.pages)
+        except ValueError:
+            raise
         except Exception as exc:  # PDF parsing errors should return a useful message to the user.
             raise ValueError("We could not read this PDF. Check that it opens normally and is not password protected.") from exc
     raise ValueError("Only PDF CVs are accepted. Save your CV as a PDF and upload that file.")
@@ -718,7 +759,7 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
     else:
         skills = list_values(raw_skill_lines + [value for value in [labeled_value(r"(?:technical\s+)?skills?|key\s+competencies|core\s+competencies|technologies|tools")] if value])
     for skill in SKILLS:
-        if re.search(r"(?<![\w+#.])" + re.escape(skill.lower()) + r"(?![\w+#.])", normalized, re.I) and skill.lower() not in {value.lower() for value in skills}:
+        if re.search(r"(?<![\w+#])" + re.escape(skill.lower()) + r"(?![\w+#])", normalized, re.I) and skill.lower() not in {value.lower() for value in skills}:
             skills.append(skill)
     if re.search(r"\bjs\b", normalized, re.I) and "JavaScript" not in skills:
         skills.append("JavaScript")
@@ -910,7 +951,7 @@ def make_pdf(payload: dict[str, object]) -> bytes:
                 dates = pdf_safe(str(experience.get("dates", "")).strip())
                 role_company = " - ".join(value for value in (role, company) if value)
                 header = " | ".join(value for value in (role_company, dates) if value) or "Experience"
-                details = tailored_bullet if index == 0 and tailored_bullet else experience.get("detail", "")
+                details = tailored_bullet if index == version.get("experienceIndex", 0) and tailored_bullet else experience.get("detail", "")
                 items = text_items(details)
                 first = [para(header, role_style)]
                 if items:
@@ -955,18 +996,40 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         if parsed.path == "/api/search-jobs":
+            if not self.allow_request("search", SEARCH_RATE_LIMIT, 60):
+                self.send_json(429, {"error": "Too many searches. Wait a minute and try again."})
+                return
             query = parse_qs(parsed.query).get("q", [""])[0][:240]
             location_hint = parse_qs(parsed.query).get("location", [""])[0][:180]
             work_modes = [item.strip() for item in parse_qs(parsed.query).get("modes", [""])[0][:60].split(",") if item.strip()]
             try:
-                self.send_json(200, search_live_jobs(query, location_hint, work_modes))
+                from urllib.parse import unquote
+                values = json.loads(unquote(self.headers.get("X-Hireloom-Skills", "%5B%5D")[:8192]))
+                if not isinstance(values, list):
+                    raise ValueError("Expected a list of skills")
+                skills = tuple(sorted({value.strip().lower() for value in values[:100] if isinstance(value, str)}))
+                self.send_json(200, search_live_jobs(query, location_hint, work_modes, skills))
+            except ValueError:
+                self.send_json(400, {"error": "Invalid search preferences."})
             except Exception:
                 self.send_json(502, {"error": "Company career pages could not be searched right now."})
             return
         super().do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
+        try:
+            self.handle_post()
+        except Exception:
+            self.send_json(500, {"error": "Hireloom could not process this request. Please try again."})
+
+    def handle_post(self) -> None:
         path = urlsplit(self.path).path
+        if path in {"/api/render-cv", "/api/parse-cv", "/api/store-cv"} and not self.allow_request("cv", CV_RATE_LIMIT, CV_RATE_WINDOW_SECONDS):
+            self.send_json(429, {"error": "Too many CV requests. Wait a minute and try again."})
+            return
+        if path == "/api/store-cv":
+            self.store_cv()
+            return
         if path == "/api/render-cv":
             self.render_cv()
             return
@@ -995,6 +1058,25 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, RuntimeError) as exc:
             self.send_json(422, {"error": str(exc)})
 
+    def allow_request(self, scope: str, limit: int, window_seconds: int) -> bool:
+        forwarded = self.headers.get("x-vercel-forwarded-for", "").split(",", 1)[0].strip() if os.environ.get("VERCEL") else ""
+        client = f"{scope}:{forwarded or (self.client_address[0] if self.client_address else 'unknown')}"
+        now = time.monotonic()
+        with CV_RATE_LOCK:
+            if len(CV_RATE_BUCKETS) >= 4096:
+                for key in list(CV_RATE_BUCKETS):
+                    if now - CV_RATE_BUCKETS[key][-1] >= 60:
+                        del CV_RATE_BUCKETS[key]
+                if client not in CV_RATE_BUCKETS and len(CV_RATE_BUCKETS) >= 4096:
+                    return False
+            recent = [stamp for stamp in CV_RATE_BUCKETS.get(client, []) if now - stamp < window_seconds]
+            if len(recent) >= limit:
+                CV_RATE_BUCKETS[client] = recent
+                return False
+            recent.append(now)
+            CV_RATE_BUCKETS[client] = recent
+            return True
+
     def read_body(self, limit: int, size_error: str) -> bytes | None:
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -1007,6 +1089,39 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(413, {"error": size_error})
             return None
         return self.rfile.read(length)
+
+    def store_cv(self) -> None:
+        project = os.environ.get("SUPABASE_URL", "").rstrip("/")
+        key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        if not project.startswith("https://") or not key:
+            self.send_json(503, {"error": "Private CV storage is not configured."})
+            return
+        bearer = self.headers.get("Authorization", "")
+        if not bearer.startswith("Bearer "):
+            self.send_json(401, {"error": "Sign in to store your CV."})
+            return
+        try:
+            req = Request(project + "/auth/v1/user", headers={"apikey": key, "Authorization": bearer})
+            with urlopen(req, timeout=5) as response:
+                owner = UUID(json.load(response)["id"])
+        except HTTPError as exc:
+            if exc.code not in (401, 403):
+                raise
+            self.send_json(401, {"error": "Sign in again to store your CV."})
+            return
+        payload = self.read_body(MAX_FILE_BYTES, "The CV must be 1 MB or smaller.")
+        if payload is None:
+            return
+        try:
+            extract_document("cv.pdf", payload)
+        except ValueError:
+            self.send_json(422, {"error": "Choose a readable PDF of 30 pages or fewer."})
+            return
+        upload = Request(f"{project}/storage/v1/object/cvs/{owner}/cv.pdf", data=payload,
+                         headers={"apikey": key, "Authorization": f"Bearer {key}",
+                                  "Content-Type": "application/pdf", "x-upsert": "true"}, method="POST")
+        with urlopen(upload, timeout=10):
+            self.send_json(200, {"stored": True})
 
     def render_cv(self) -> None:
         body = self.read_body(256 * 1024, "The CV draft is too large to render.")

@@ -28,7 +28,7 @@ INDEX_PATH = ROOT / "data" / "jobs.json.gz"
 BUNDLE_MANIFEST_PATH = ROOT / "data" / "job_index.json"
 BUNDLE_SHARDS = 24
 PROVIDER_URLS = {
-    "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
+    "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true",
     "ashby": "https://api.ashbyhq.com/posting-api/job-board/{slug}",
     "lever": "https://api.lever.co/v0/postings/{slug}?mode=json",
 }
@@ -68,8 +68,14 @@ def fetch_source(source: dict[str, object]) -> tuple[list[dict[str, object]], st
     for attempt in range(3):
         try:
             payload = server.fetch_json_value(source_url(source))
-            jobs = [server.normalize_public_job(source, record) for record in source_records(source, payload)]
-            return [job for job in jobs if job], ""
+            records = source_records(source, payload)
+            if not records:
+                raise ValueError("Job feed returned no records; treating it as unavailable until verified.")
+            jobs = [server.normalize_public_job(source, record) for record in records]
+            valid = [job for job in jobs if job]
+            if not valid:
+                raise ValueError("No usable job records; check the provider schema.")
+            return valid, ""
         except HTTPError as exc:
             if exc.code != 429 and exc.code < 500:
                 return [], f"HTTPError: {exc.code}"
@@ -88,7 +94,7 @@ def write_index(payload: dict[str, object], destination: Path) -> None:
     temporary = Path(temporary_name)
     try:
         with temporary.open("wb") as raw:
-            with gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=9, mtime=0) as compressed:
+            with gzip.GzipFile(filename="", fileobj=raw, mode="wb", compresslevel=9, mtime=0) as compressed:
                 compressed.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
         temporary.replace(destination)
     finally:

@@ -47,17 +47,15 @@ def main():
             expect(page.locator("#login-email")).to_have_attribute("autocomplete", "username")
             expect(page.locator("#login-password")).to_have_attribute("autocomplete", "current-password")
             assert page.evaluate("cvDownloadName('Apurv Kumar')") == "Apurv_Kumar_CV.pdf"
-            deltas = page.evaluate("""job => {
-                const modes = ['Not listed', 'Flexible', 'Remote', 'Onsite'];
-                const previous = state.profile.workModes;
+            assert page.evaluate("""job => {
+                const prior = state.profile.workModes;
                 try {
                     state.profile.workModes = [];
-                    const baseline = matchScore(job);
+                    const base = matchScore(job);
                     state.profile.workModes = ['Remote'];
-                    return modes.map(mode => matchScore({...job, mode}) - baseline);
-                } finally { state.profile.workModes = previous; }
-            }""", job)
-            assert deltas == [0, 0, 0, -6], deltas
+                    return ['Not listed','Flexible','Remote','Onsite'].map(mode => matchScore({...job,mode})-base);
+                } finally {state.profile.workModes = prior;}
+            }""", job) == [0,0,0,-6]
             action = lambda name: page.locator(f'[data-action="{name}"]').first.click()
             nav = lambda name: page.locator(f'button.nav-link[data-nav="{name}"]').click()
 
@@ -108,13 +106,15 @@ def main():
             expect(page.locator("[name^=experienceTitle]")).to_have_count(2)
             expect(page.locator("[name=experienceTitle0]")).to_have_value("Lead Data Engineer")
             page.locator("[name=experienceTitle1]").fill("Data Analyst")
+            page.locator("[name=educationQualification0]").fill("B.Com.")
             action("add-education")
             expect(page.locator("[name^=educationQualification]")).to_have_count(2)
             page.locator("[name=educationQualification1]").fill("M.Sc. Data Science")
+            page.locator("[name=languageName0]").fill("English")
             action("add-language")
-            expect(page.locator("[name^=languageName]")).to_have_count(3)
-            page.locator("[name=languageName2]").fill("German")
-            page.locator("[name=languageProficiency2]").select_option("Basic")
+            expect(page.locator("[name^=languageName]")).to_have_count(2)
+            page.locator("[name=languageName1]").fill("German")
+            page.locator("[name=languageProficiency1]").select_option("Basic")
             page.locator("#new-skill").fill("ETL")
             action("add-skill")
             page.locator("[data-profile-tab=preferences]").click()
@@ -135,7 +135,7 @@ def main():
             expect(page.locator("[data-action=remove-role]")).to_have_count(2)
             expect(page.locator("[name=experienceTitle1]")).to_have_value("Data Analyst")
             expect(page.locator("[name=educationQualification1]")).to_have_value("M.Sc. Data Science")
-            expect(page.locator("[name=languageName2]")).to_have_value("German")
+            expect(page.locator("[name=languageName1]")).to_have_value("German")
             page.locator("[data-profile-tab=preferences]").click()
             expect(page.locator("[data-action=remove-interested-location]")).to_have_count(2)
             expect(page.locator("#p-relocation")).to_have_value("Open to international relocation")

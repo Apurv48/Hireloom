@@ -15,13 +15,13 @@ The local server binds to localhost. With Supabase configured, local and hosted 
 
 ## Deploy to Vercel
 
-The repository is set up for Vercel (`vercel.json`). Static files live in `public/`, and the three API routes (`/api/search-jobs`, `/api/parse-cv`, `/api/render-cv`) are Python serverless functions in `api/` that reuse the logic in `server.py`.
+The repository is set up for Vercel (`vercel.json`). Static files live in `public/`, and the four API routes (`/api/search-jobs`, `/api/parse-cv`, `/api/render-cv`, `/api/store-cv`) are Python serverless functions in `api/` that reuse the logic in `server.py`.
 
 1. In Vercel choose **Add New → Project** and import this GitHub repository.
-2. Keep the framework preset on **Other**. No build command is needed and no environment variables are required; Vercel installs `requirements.txt` for the functions. Job search reads public employer boards without a key.
+2. Keep the framework preset on **Other**. Vercel installs `requirements.txt`. For private CV storage, set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as server-only environment variables. Deploy the validated upload endpoint and apply the updated `supabase/schema.sql` to remove direct browser insert/update permissions. Job search reads public employer boards without a key.
 3. Deploy. Every push to `main` redeploys automatically. This project's deployment is at [https://hireloom-nine.vercel.app](https://hireloom-nine.vercel.app).
 
-Things to know on Vercel: the job-feed cache lives in each warm function instance, so the first search after a quiet period refetches the feeds and can take a few seconds. CV uploads are capped at 1 MB (see Accounts and storage). The Hobby plan is meant for personal, non-commercial projects.
+Searches read the bundled index. An optional remote override refreshes in the background. CV uploads are limited to 1 MB and 30 pages.
 
 In local demo mode Hireloom keeps the demo account, profile, chats and tracker in each user's browser; it has no server-side account database or password recovery, and a CV sent to the server is parsed in memory and not retained. In Supabase mode accounts, workspaces and each user's latest CV are stored in your Supabase project (see below). Either way, do not upload confidential applicant data or use this MVP for real hiring until it has production authentication, security and privacy reviews.
 
@@ -42,9 +42,9 @@ What it does:
 
 - **Forgot password (email code):** the login page has a "Forgot password?" link. The user enters their email and Supabase sends a one-time numeric code (no link). They type the code into Hireloom, which verifies it with Supabase; only then does the "Choose a new password" page (8+ characters) appear, and saving it signs them in. The same screen is shown whether or not the address has an account, a wrong or expired code shows an error without signing anyone in, resending is limited to once a minute, and closing the tab after verifying but before saving a password brings the user back to the new-password step instead of logging them in. The email wording is edited under **Authentication → Email Templates**; emails are sent through the SMTP provider from step 5. Local demo accounts cannot be reset because there is no email service.
 - **Accounts:** email and password sign-up and login handled by Supabase Auth. Passwords are never stored by Hireloom. Sessions persist on each device and log out only that device.
-- **Workspace sync:** profile, chats, saved jobs, tracker, tailored CVs and settings are saved to one row per user a couple of seconds after each change, and loaded at login. Completed replies, result counts and up to 512 KB of listing previews sync across devices. Saved and tracked roles keep separate snapshots. Rerun a prompt to fetch current openings. The latest change wins if two devices are edited at once.
+- **Workspace sync:** profile, chats, saved jobs, tracker, tailored CVs and settings are saved to one row per user after a short debounce, and loaded at login. Completed replies, result counts and up to 512 KB of listing previews sync across devices. Saved and tracked roles keep separate snapshots. Rerun a prompt to fetch current openings. Writes check the last loaded database revision. On a conflict, export the local edits and reload. Settings → Privacy → Export includes any recovered conflict copy.
 - **CV storage:** after the user confirms a parsed CV, the file is stored privately as `<user id>/cv.pdf`. Each user has one stored CV and a new upload replaces it, which keeps storage small. The 1 MB limit is enforced in the browser, in `server.py` and by the bucket itself. Users can download their stored CV from the Profile page. At up to 1 MB per user the free 1 GB of file storage covers at least 1,000 users, and far more with typical CV sizes.
-- **Shared devices:** logging out clears the local copy of the workspace so accounts never mix on one browser.
+- **Shared devices:** pending edits are retained under the account ID until a confirmed write. A failed save can be recovered on the same browser.
 - **Delete account:** Settings → Privacy removes the login, workspace row and stored CV.
 
 Troubleshooting reset emails: if the app says a code is on its way but nothing arrives, open Supabase **Logs → Auth** and look for the `/recover` entry. A 200 means Supabase accepted the request and the problem is delivery (check Spam and All Mail; confirm the SMTP settings and app password). "Error sending recovery email" means the SMTP login is being rejected, usually a wrong or space-containing app password, 2-Step Verification being off, or a username that differs from the sender address.
@@ -55,14 +55,14 @@ Known gaps: no email-change flow, no "change password" form for users who are al
 
 Hireloom searches a generated index of public postings from 300 fixed company career boards. The registry in `data/company_boards.json` contains 135 Greenhouse, 105 Ashby and 60 Lever boards, including India-focused and global employers. No job-search API key is used. Matching runs inside Hireloom and only the employer’s original application link opens when a user chooses **Track and apply**.
 
-The `Refresh company jobs` GitHub Actions workflow builds the first release index when this feature reaches `main`, then rebuilds it every day from those public employer feeds. It replaces the `job-index` release asset without adding a new large binary to Git history. The hosted API downloads that asset at most once every four hours per warm process and falls back to the bundled launch index if GitHub is unavailable. Searches read the generated index, so a user request does not send their prompt, profile or CV to 300 companies and does not wait for 300 network calls. Run `python scripts/refresh_job_index.py` to rebuild both index formats manually. The refresh keeps the previous release asset if fewer than 270 sources respond successfully.
+The `Refresh company jobs` GitHub Actions workflow rebuilds the index every day from those public employer feeds. It commits the refreshed compressed shards and manifest used by the deployed API, and also replaces the `job-index` release asset. Searches use the bundled shards immediately, so a user request neither waits for the release host nor sends their prompt, profile or CV to 300 companies. `HIRELOOM_JOB_INDEX_URL` can explicitly enable a remote index override; it is disabled by default and has a two-second timeout. Run `python scripts/refresh_job_index.py` to rebuild both index formats manually. Empty or changed-shape feeds are reported as failures, and the refresh keeps the previous index if fewer than 270 sources respond successfully.
 
-An explicit location in chat takes precedence over profile locations. A profile without locations gets the default markets, including India. Listings include the employer's posting date and work mode when supplied. The search request also carries your work-mode preference, so only matching work modes are ranked. The employer controls vacancy availability.
+An explicit location in chat takes precedence over profile locations. A profile without locations gets the default markets, including India. Listings include the employer's posting date and work mode when supplied. Hireloom uses work-mode preferences and confirmed skill tags when ranking candidates before the 60-result cap. Flexible and unlisted modes remain eligible. The employer controls vacancy availability.
 
 ## Included flows
 
 - Search employer listings by role, skills, location and work mode. Open **Saved** to revisit bookmarked roles, including after deleting the original chat.
-- Keep prompts and matching responses as ordered turns in the same chat; start a separate chat only with “New search.” Editing a prompt changes that same turn and refreshes its results instead of adding a new prompt; “Refine with a new prompt” is the way to add a follow-up turn.
+- Keep prompts and matching responses as ordered turns in the same chat; start a separate chat only with “New search.” Editing a prompt refreshes that turn and later follow-ups whose resolved searches change instead of adding a new prompt; “Refine with a new prompt” is the way to add a follow-up turn.
 - A short follow-up such as “only remote ones” or “in Pune” updates the mode or location of the previous search. The chat shows the resulting query. Rerunning a turn uses that turn’s saved query.
 - Resolve location from an explicit city/country in the chat first; otherwise match the profile's interested locations and current location. Remote listings are checked against their stated country eligibility.
 - Search by voice with selectable English, German, Hindi, or English-Hindi recognition; review and edit the transcript before submitting a search.
@@ -75,7 +75,7 @@ An explicit location in chat takes precedence over profile locations. A profile 
 - Edit, approve, or reject a job-specific CV draft built only from profile content.
 - Download an approved, ATS-friendly CV as a PDF (single column, selectable text, standard fonts). CVs are created and downloaded only as PDF.
 - Choose **Track and apply** to save the role as Opened, then confirm submission and record later status changes in Tracker.
-- Save jobs, export local data, change notification preferences, and delete browser data.
+- Save jobs, export local data, review feature availability, and delete browser data.
 
 ## Demo boundaries
 

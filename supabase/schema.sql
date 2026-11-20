@@ -44,13 +44,7 @@ drop policy if exists "cvs delete own" on storage.objects;
 create policy "cvs select own" on storage.objects
   for select to authenticated
   using (bucket_id = 'cvs' and (storage.foldername(name))[1] = auth.uid()::text);
-create policy "cvs insert own" on storage.objects
-  for insert to authenticated
-  with check (bucket_id = 'cvs' and (storage.foldername(name))[1] = auth.uid()::text);
-create policy "cvs update own" on storage.objects
-  for update to authenticated
-  using (bucket_id = 'cvs' and (storage.foldername(name))[1] = auth.uid()::text)
-  with check (bucket_id = 'cvs' and (storage.foldername(name))[1] = auth.uid()::text);
+-- Only the validated server upload route may insert or replace CVs.
 create policy "cvs delete own" on storage.objects
   for delete to authenticated
   using (bucket_id = 'cvs' and (storage.foldername(name))[1] = auth.uid()::text);
