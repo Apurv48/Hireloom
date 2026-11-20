@@ -266,9 +266,13 @@ function locationMatches(job, terms) {
     });
   });
 }
+function workModeConflicts(preferences, mode) {
+  if (!preferences?.length || !mode || mode === 'Flexible' || mode === 'Not listed') return false;
+  return !preferences.includes(mode);
+}
 function profileAllowsJob(job, locationTerms) {
   const p=state.profile;
-  if(p.workModes?.length && !['Flexible','Not listed'].includes(job.mode) && !p.workModes.includes(job.mode))return false;
+  if(workModeConflicts(p.workModes,job.mode))return false;
   if(!locationMatches(job,locationTerms))return false;
   const languages=(String(p.languages||'').match(/English|German|French|Spanish|Hindi|Italian|Dutch/gi)||[]).map((value)=>value.toLowerCase());
   if(languages.length && job.languages?.length && !job.languages.some((language)=>languages.includes(language.toLowerCase())))return false;
@@ -277,7 +281,7 @@ function profileAllowsJob(job, locationTerms) {
 function matchScore(job) {
   const coverage = job.skills.length ? matchingSkills(job).length / job.skills.length : 0;
   const skillShift = Math.round((coverage - .5) * 8);
-  const mode = state.profile.workModes.includes(job.mode) || state.profile.workModes.length === 0 ? 0 : -6;
+  const mode = workModeConflicts(state.profile.workModes,job.mode) ? -6 : 0;
   return Math.min(97, Math.max(48, job.match + skillShift + mode));
 }
 function atsScore() {

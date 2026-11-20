@@ -47,6 +47,17 @@ def main():
             expect(page.locator("#login-email")).to_have_attribute("autocomplete", "username")
             expect(page.locator("#login-password")).to_have_attribute("autocomplete", "current-password")
             assert page.evaluate("cvDownloadName('Apurv Kumar')") == "Apurv_Kumar_CV.pdf"
+            deltas = page.evaluate("""job => {
+                const modes = ['Not listed', 'Flexible', 'Remote', 'Onsite'];
+                const previous = state.profile.workModes;
+                try {
+                    state.profile.workModes = [];
+                    const baseline = matchScore(job);
+                    state.profile.workModes = ['Remote'];
+                    return modes.map(mode => matchScore({...job, mode}) - baseline);
+                } finally { state.profile.workModes = previous; }
+            }""", job)
+            assert deltas == [0, 0, 0, -6], deltas
             action = lambda name: page.locator(f'[data-action="{name}"]').first.click()
             nav = lambda name: page.locator(f'button.nav-link[data-nav="{name}"]').click()
 
