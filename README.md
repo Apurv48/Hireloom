@@ -18,7 +18,7 @@ The local server binds to localhost. With Supabase configured, local and hosted 
 The repository is set up for Vercel (`vercel.json`). Static files live in `public/`, and the four API routes (`/api/search-jobs`, `/api/parse-cv`, `/api/render-cv`, `/api/store-cv`) are Python serverless functions in `api/` that reuse the logic in `server.py`.
 
 1. In Vercel choose **Add New → Project** and import this GitHub repository.
-2. Keep the framework preset on **Other**. Vercel installs `requirements.txt`. For private CV storage, set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as server-only environment variables. Deploy the validated upload endpoint and apply the updated `supabase/schema.sql` to remove direct browser insert/update permissions. Job search reads public employer boards without a key.
+2. Keep the framework preset on **Other**. Vercel installs `requirements.txt`. Existing buckets can use validated uploads immediately through the server endpoint with the signed-in user's token. To enforce server-only uploads at the bucket, set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as server-only environment variables, redeploy, then run the updated `supabase/schema.sql`. The SQL removes direct browser insert/update permissions.
 3. Deploy. Every push to `main` redeploys automatically. This project's deployment is at [https://hireloom-nine.vercel.app](https://hireloom-nine.vercel.app).
 
 Searches read the bundled index. An optional remote override refreshes in the background. CV uploads are limited to 1 MB and 30 pages.
@@ -91,5 +91,5 @@ No package manager or frontend build step is required.
 
 ## Regression checks
 
-Run `python -m unittest discover -s tests -v` for employer search and PDF checks. Run `node --test tests/cloud-sync.test.cjs` for save ordering, account ownership and retries. To exercise the UI locally, install Python Playwright and its Chromium browser, then run `python tests/browser_smoke.py`. The browser check uses fixture listings and disposable local accounts.
+Run `python -m unittest discover -s tests -v` for employer search and PDF checks. Run `node --test tests/*.test.cjs` for workspace recovery, scoring and conversational search. To exercise the UI locally, install Python Playwright and its Chromium browser, then run `python tests/browser_smoke.py`. The browser check uses fixture listings and disposable local accounts.
 

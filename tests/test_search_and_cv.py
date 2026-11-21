@@ -46,6 +46,27 @@ class CareerSearchTests(unittest.TestCase):
         jobs.append(make_job("match", "Analyst", skills=["SQL"]))
         self.assertEqual(server.filter_live_jobs(jobs, "analyst", "India", [], ("sql",))[0]["id"], "match")
 
+    def test_user_scoped_cv_storage_during_rollout(self):
+        import io
+        from unittest.mock import Mock
+        handler = object.__new__(server.Handler)
+        handler.headers = {"Authorization": "Bearer user-session"}
+        handler.read_body = Mock(return_value=b"%PDF-example")
+        handler.send_json = Mock()
+        config = "  url: 'https://fixture.supabase.co',\n  anonKey: 'publishable'"
+        owner = "76119fce-82b8-4bc6-a7c8-406e50dcd23c"
+        responses = [io.BytesIO(('{"id":"%s"}' % owner).encode()), io.BytesIO()]
+        with patch.dict(server.os.environ, {"SUPABASE_SERVICE_ROLE_KEY": ""}), \
+             patch.object(Path, "read_text", return_value=config), \
+             patch.object(server, "urlopen", side_effect=responses) as request, \
+             patch.object(server, "extract_document") as validate:
+            handler.store_cv()
+        validate.assert_called_once_with("cv.pdf", b"%PDF-example")
+        upload = request.call_args.args[0]
+        self.assertEqual(upload.full_url, f"https://fixture.supabase.co/storage/v1/object/cvs/{owner}/cv.pdf")
+        self.assertEqual(upload.get_header("Authorization"), "Bearer user-session")
+        handler.send_json.assert_called_once_with(200, {"stored": True})
+
     def test_greenhouse_listing_is_normalized(self):
         source = {"company": "Twilio", "provider": "greenhouse", "slug": "twilio",
                   "careers_url": "https://job-boards.greenhouse.io/twilio"}

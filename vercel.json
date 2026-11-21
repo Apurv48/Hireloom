@@ -1,7 +1,7 @@
 {
   "outputDirectory": "public",
   "functions": {
-    "api/*.py": { "maxDuration": 30 }
+    "api/*.py": { "maxDuration": 30, "includeFiles": "public/config.js" }
   },
   "headers": [
     {

@@ -142,12 +142,10 @@
     revision = data?.updated_at || null;
     const local = loadPending(owner);
     if (local) {
-      const remoteSavedAt = Date.parse(data?.updated_at || '') || 0;
-      if (data?.state && (local.base !== revision || remoteSavedAt >= Number(local.savedAt || 0))) {
+      // Device clocks can differ. Only the revision identifies the row these edits started from.
+      if (data?.state && local.base !== revision) {
         if (pending?.owner === owner) pending = null;
-        if (local.base !== revision) {
-          localStorage.setItem(pendingKey(owner)+':conflict', JSON.stringify(local.state));
-        }
+        localStorage.setItem(pendingKey(owner)+':conflict', JSON.stringify(local.state));
         clearPending(local);
         return data.state;
       }

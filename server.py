@@ -537,6 +537,7 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
     allowed_modes = {item for item in (work_modes or []) if item in WORK_MODES}
     matchers = [token_matchers(token) for token in tokens]
     preferred_skills = set(profile_skills)
+    seniority = re.findall(r"\b(?:junior|senior)\b", lowered)
     ranked = []
     for job in jobs:
         if mode and job.get("mode") != mode:
@@ -553,6 +554,13 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
         score = sum(3 if fields_hit(title, alts) else 2 if fields_hit(skills, alts) else 1 if fields_hit(other, alts) else 0 for alts in matchers)
         if tokens and score == 0:
             continue
+        for level in seniority:
+            if re.search(r"\b" + level + r"\b", title):
+                score += 3
+        if "data analyst" in lowered and "analyst" in title:
+            score += 4
+        if "ml" in tokens and re.search(r"\b(?:machine learning|ml)\b", f"{title} {skills}"):
+            score += 5
         try:
             freshness = int(job.get("published", "0"))
         except (TypeError, ValueError):
@@ -1093,6 +1101,14 @@ class Handler(SimpleHTTPRequestHandler):
     def store_cv(self) -> None:
         project = os.environ.get("SUPABASE_URL", "").rstrip("/")
         key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        write_token = f"Bearer {key}" if key else self.headers.get("Authorization", "")
+        if not key:
+            # During rollout, existing buckets allow authenticated writes to the owner's folder.
+            # Use only the deployment's checked-in public config for the auth destination.
+            config = (STATIC_DIR / "config.js").read_text(encoding="utf-8")
+            settings = dict(re.findall(r"""^\s*(url|anonKey):\s*['"]([^'"]+)['"]""", config, re.M))
+            project = settings.get("url", "").rstrip("/")
+            key = settings.get("anonKey", "")
         if not project.startswith("https://") or not key:
             self.send_json(503, {"error": "Private CV storage is not configured."})
             return
@@ -1118,7 +1134,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(422, {"error": "Choose a readable PDF of 30 pages or fewer."})
             return
         upload = Request(f"{project}/storage/v1/object/cvs/{owner}/cv.pdf", data=payload,
-                         headers={"apikey": key, "Authorization": f"Bearer {key}",
+                         headers={"apikey": key, "Authorization": write_token,
                                   "Content-Type": "application/pdf", "x-upsert": "true"}, method="POST")
         with urlopen(upload, timeout=10):
             self.send_json(200, {"stored": True})

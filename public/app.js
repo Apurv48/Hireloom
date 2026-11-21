@@ -290,41 +290,7 @@ function matchScore(job) {
 const {atsScoreForProfile,workModePenalty}=window.HireloomScoring;
 function atsScore() { return atsScoreForProfile(state.profile); }
 function tokensForSearch(query) { return String(query).toLowerCase().replace(/\b\d+\+?\s*(years?|yrs?)\b/g,' ').match(/[a-z][a-z0-9+#.-]*/g) || []; }
-// Keep in sync with SEARCH_SYNONYMS in server.py.
-const SEARCH_SYNONYMS={ml:['machine learning'],ai:['artificial intelligence'],pm:['product manager'],js:['javascript'],ts:['typescript'],k8s:['kubernetes'],qa:['quality assurance'],ux:['user experience']};
-function escapeRegex(text) { return text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
-// Whole-word matchers for a keyword and its synonyms; 'java' does not match 'javascript', a plural s is allowed.
-function tokenMatchers(token) {
-  return [token,...(SEARCH_SYNONYMS[token]||[])].map((term)=>({term,pattern:new RegExp(`(?<![a-z0-9])${escapeRegex(term)}s?(?![a-z0-9])`)}));
-}
-function fieldHits(text,matchers) { return matchers.some(({term,pattern})=>text.includes(term)&&pattern.test(text)); }
-// Weights: title 3, skills 2, company or description 1.
-function tokenWeight(matchers,job) {
-  const title=String(job.title).toLowerCase(), skills=job.skills.join(' ').toLowerCase(), other=`${job.company} ${job.description}`.toLowerCase();
-  return fieldHits(title,matchers)?3:fieldHits(skills,matchers)?2:fieldHits(other,matchers)?1:0;
-}
-function jobsForQuery(query,catalogOverride) {
-  const q = String(query || '').toLowerCase();
-  const catalog=Array.isArray(catalogOverride)?catalogOverride:jobs;
-  const mode = q.includes('remote') ? 'Remote' : q.includes('hybrid') ? 'Hybrid' : q.includes('onsite') || q.includes('on-site') ? 'Onsite' : null;
-  const locations=effectiveLocationTerms(query), marketTerms=locations.length?locations:DEFAULT_MARKETS;
-  const language = ['german','english','french','spanish','hindi'].find(lang => tokensForSearch(q).includes(lang));
-  const locationTokens=new Set(locations.flatMap(tokensForSearch));
-  let tokens = tokensForSearch(query).filter((word) => !locationTokens.has(word) && !['remote','hybrid','onsite','on','site','in','the','and','with','jobs','job','roles','role','years','year','english','german','french','spanish','speaking','junior','senior'].includes(word));
-  if (q.includes('junior')) tokens.push('junior');
-  if (q.includes('senior')) tokens.push('senior');
-  const tokenMatchList = tokens.map(tokenMatchers);
-  const ranked = catalog.map((job) => {
-    if (!profileAllowsJob(job,marketTerms)) return { job, score:-1 };
-    if (mode && job.mode !== mode) return { job, score:-1 };
-    if (language && job.languages?.length && !job.languages.some((value) => value.toLowerCase() === language)) return { job, score:-1 };
-    const keywordScore = tokenMatchList.reduce((score, matchers) => score + tokenWeight(matchers, job), 0);
-    const roleBonus = q.includes('data analyst') && /analyst/i.test(job.title) ? 4 : 0;
-    const mlBonus = tokensForSearch(q).includes('ml') && /\bmachine learning\b|\bml\b/i.test(`${job.title} ${job.skills.join(' ')}`) ? 5 : 0;
-    return { job, score:keywordScore + roleBonus + mlBonus + matchScore(job) / 100 };
-  });
-  return ranked.filter((entry) => entry.score >= 0).sort((a,b) => b.score-a.score).map((entry) => entry.job);
-}
+// Search results arrive in their final relevance order from /api/search-jobs.
 function snapshotJob(job) {
   return {...job,fitScore:matchScore(job),description:String(job.description||'').slice(0,900),highlights:(job.highlights||[]).slice(0,3).map((value)=>String(value).slice(0,220)),skills:job.skills||[]};
 }
@@ -457,7 +423,7 @@ function renderConversationTurn(turn,index,count) {
   const search=liveSearchByTurn.get(turn.id),status=search?.status||turn.status;
   const searching=status==='loading'||status==='unloaded';
   const liveReady=status==='ready',feedFailed=status==='error';
-  const results=turn.resultsCaptured?turn.jobs:(liveReady?jobsForQuery(turn.query,search?.jobs||[]):[]);
+  const results=turn.resultsCaptured?turn.jobs:(liveReady?search?.jobs||[]:[]);
   const feedNames=(turn.sources?.length?turn.sources:search?.sources||[]).filter((source)=>source.ok).map((source)=>source.name);
   const editing=editingPromptTurnId===turn.id;
   const response=turn.response||(liveReady?'Here are the closest matching roles I found.':feedFailed?'I couldn’t load the company job index for this search. You can retry it.':'I’m searching current company listings for this request.');
@@ -1034,7 +1000,13 @@ function startLiveSearch(chat,force=false,turnId=null) {
       const hasSource=entry.sources.some((source)=>source.ok);
       entry.jobs=hasSource&&Array.isArray(body.jobs)?body.jobs:[];entry.status=hasSource?'ready':'error';
       turn.sources=entry.sources;turn.status=entry.status;turn.resultsCaptured=true;
-      if(hasSource){const ranked=jobsForQuery(searchQuery,entry.jobs);turn.totalResults=ranked.length;turn.jobs=ranked.map(snapshotJob);turn.response=ranked.length?`I found ${ranked.length} matching ${ranked.length===1?'role':'roles'}, ranked by fit.`:'I couldn’t find live listings that matched this prompt. Try another title, location, or work mode.';}
+      if(hasSource){
+        turn.totalResults=entry.jobs.length;
+        turn.jobs=entry.jobs.map(snapshotJob);
+        turn.response=turn.totalResults
+          ? `I found ${turn.totalResults} matching ${turn.totalResults===1?'role':'roles'}, ranked by relevance and fit.`
+          : 'I couldn’t find live listings that matched this prompt. Try another title, location, or work mode.';
+      }
       else{turn.totalResults=0;turn.jobs=[];turn.response='I couldn’t load the company job index for this prompt. You can retry it.';}
       liveSearchByTurn.set(turn.id,entry);persist();
       if(state.activeChatId===chat.id){liveSearch=entry;if(state.view==='chat')render();}
