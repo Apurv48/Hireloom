@@ -31,7 +31,11 @@
   let lastErrorAt = 0;
   function pendingKey(owner) { return `${PENDING_PREFIX}${owner}`; }
   function savePending(entry) {
-    try { localStorage.setItem(pendingKey(entry.owner), JSON.stringify(entry)); } catch (error) { /* private mode or full storage */ }
+    try {
+      localStorage.setItem(pendingKey(entry.owner), JSON.stringify(entry));
+    } catch {
+      if (cloud.onSyncError) cloud.onSyncError(new Error('Browser storage is unavailable. Keep this tab open until your account save finishes.'));
+    }
   }
   function loadPending(owner) {
     try {
@@ -209,19 +213,19 @@
 
   // One CV per user: a new upload replaces the previous file.
   cloud.uploadCv = async (file, owner) => {
-    const user = await cloud.getUser();
-    if (!user || user.id !== owner) throw new Error('Account changed. Please sign in again.');
     const ext = extensionOf(file.name);
     if (!MIME[ext]) throw new Error('Only PDF CVs are accepted. Save your CV as a PDF and upload that file.');
     if (file.size > MAX_CV_BYTES) throw new Error('The CV must be 1 MB or smaller.');
     const signature = new Uint8Array(await file.slice(0, 5).arrayBuffer());
     if (String.fromCharCode(...signature) !== '%PDF-') throw new Error('This file is not a real PDF. Save it as a PDF and try again.');
-    const path = `${user.id}/cv.${ext}`;
     const {data} = await sb.auth.getSession();
-    const response = await window.fetch('/api/store-cv',{method:'POST',headers:{Authorization:'Bearer '+data.session.access_token,'Content-Type':'application/pdf'},body:file});
+    const session = data?.session;
+    if (!session?.access_token || session.user?.id !== owner) throw new Error('Account changed. Please sign in again.');
+    const path = `${owner}/cv.${ext}`;
+    const response = await window.fetch('/api/store-cv',{method:'POST',headers:{Authorization:'Bearer '+session.access_token,'Content-Type':'application/pdf'},body:file});
     if (!response.ok) throw Error((await response.json()).error || 'CV storage failed.');
     // Remove a CV stored earlier in the old DOCX format so only one file is kept.
-    await sb.storage.from(BUCKET).remove([`${user.id}/cv.docx`]).catch(() => {});
+    await sb.storage.from(BUCKET).remove([`${owner}/cv.docx`]).catch(() => {});
     return path;
   };
 

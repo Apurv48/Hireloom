@@ -11,6 +11,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from server import Handler, ThreadingHTTPServer
 
 
+def check_large_save_recovery(browser, base):
+    context = browser.new_context()
+    try:
+        context.route("**/recovery-fixture*", lambda route: route.fulfill(
+            content_type="text/html", body='<script src="/cloud.js"></script>'))
+        context.add_init_script("""window.HIRELOOM_SUPABASE={url:'fixture',anonKey:'fixture'};
+          window.supabase={createClient:()=>({
+            auth:{onAuthStateChange(){},getSession:async()=>({data:{session:{user:{id:'person'}}}})},
+            from:()=>({
+              select:()=>({eq:()=>({maybeSingle:async()=>({data:null})})}),
+              insert:row=>({select:()=>({maybeSingle:async()=>{
+                if(location.search==='?offline') return new Promise(()=>{});
+                window.uploaded=row.state.note;
+                return {data:{updated_at:row.updated_at}};
+              }})})
+            })
+          })};""")
+        page = context.new_page()
+        page.goto(base + "/recovery-fixture?offline")
+        page.evaluate("HireloomCloud.queuePush(()=>({note:'z'.repeat(100000)}),'person')")
+        page.close()
+        page = context.new_page()
+        page.goto(base + "/recovery-fixture?online")
+        assert page.evaluate("""async()=>{const state=await HireloomCloud.pull('person');
+            await HireloomCloud.flush(); return state.note==='z'.repeat(100000) && uploaded===state.note;}""")
+    finally:
+        context.close()
+
+
 def main():
     http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=http.serve_forever, daemon=True).start()
@@ -207,6 +236,7 @@ def main():
             page.set_viewport_size({"width": 375, "height": 800})
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             assert not errors, errors
+            check_large_save_recovery(browser, f"http://127.0.0.1:{http.server_port}")
             browser.close()
             print("Browser flow passed: accounts, prompt edit, saved roles, application, history and mobile layout")
     finally:

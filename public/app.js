@@ -73,7 +73,7 @@ function initialState() {
       { id:'seed-ml', title:'Junior ML roles, English speaking', date:'Last week', query:'Junior ML roles, English speaking', hasSearch:true, turns:[makeSearchTurn('Junior ML roles, English speaking','seed-ml-turn-1')] }
     ],
     activeChatId:'seed-remote', view:'login', selectedJobId:null, profileTab:'about', settingsTab:'account', trackerFilter:'All',
-    applications:[], savedJobs:[], pinnedJobs:[], cvVersions:[], settings:{newMatches:true, reminders:true, autoApply:false},
+    applications:[], savedJobs:[], pinnedJobs:[], cvVersions:[], settings:{},
     tailoringJobId:null, tailoredEdits:null, sidebarOpen:false, loggedOut:true
   };
 }
@@ -124,7 +124,7 @@ function normalizeState(parsed) {
     profile.languageEntries=Array.isArray(parsed.profile.languageEntries)?profile.languageEntries:legacyLanguageEntries(profile.languages);
     profile.interestedLocations=Array.isArray(parsed.profile.interestedLocations)?parsed.profile.interestedLocations:splitLocationTerms(profile.interestedLocation);
     profile.interestedLocation=profile.interestedLocations.join(' | ');
-    return { ...initialState(), ...parsed, chats, view:'login', loggedOut:true, profile, settings:{ ...initialState().settings, ...(parsed.settings || {}) } };
+    return { ...initialState(), ...parsed, chats, view:'login', loggedOut:true, profile, settings:{} };
 }
 let state = initialState();
 let session=false;
@@ -429,7 +429,7 @@ function renderConversationTurn(turn,index,count) {
   const response=turn.response||(liveReady?'Here are the closest matching roles I found.':feedFailed?'I couldn’t load the company job index for this search. You can retry it.':'I’m searching current company listings for this request.');
   return `<section class="conversation-turn" data-turn-id="${esc(turn.id)}"><div class="message-row user">${editing?`<div class="user-prompt-edit"><textarea class="prompt-edit-input" data-original="${esc(turn.query)}" aria-label="Edit prompt">${esc(turn.query)}</textarea><div class="prompt-edit-actions"><button class="secondary-button" type="button" data-action="cancel-prompt-edit">Cancel</button><button class="primary-button" type="button" data-action="save-prompt-edit" data-turn-id="${esc(turn.id)}" disabled>Save</button></div></div>`:`<div class="user-prompt-content"><div class="message-bubble">${esc(turn.query)}</div><div class="prompt-actions"><button class="prompt-icon-button" type="button" data-action="copy-prompt" data-turn-id="${esc(turn.id)}" aria-label="Copy prompt" title="Copy prompt">⧉</button><button class="prompt-icon-button" type="button" data-action="edit-prompt" data-turn-id="${esc(turn.id)}" aria-label="Edit prompt" title="Edit prompt">✎</button><button class="prompt-icon-button" type="button" data-action="rerun-prompt" data-turn-id="${esc(turn.id)}" aria-label="Rerun prompt" title="Rerun prompt">↻</button></div></div>`}</div><div class="message-row assistant"><div class="assistant-response"><span class="assistant-name">Hireloom</span><div class="message-bubble assistant-bubble">${searching?'<span class="typing-indicator">Searching current listings…</span>':esc(response)}</div></div></div>
     ${turn.searchQuery&&turn.searchQuery!==turn.query?`<p class="upload-note">Searching for ${esc(turn.searchQuery)}</p>`:''}
-    ${searching?`<div class="empty-state turn-loading"><div class="empty-icon">⌕</div><h3>Finding roles for this prompt…</h3><p>Searching the company job index while keeping your earlier messages here.</p></div>`:`<div class="result-head"><span><strong>${Number(turn.totalResults??results.length)} ${Number(turn.totalResults??results.length)===1?'role':'roles'}</strong> ${liveReady?`${feedNames.length?`from ${esc(feedNames.join(' + '))}`:'from company career pages'}, ranked by fit`:feedFailed?'company job index unavailable':'matching roles'}</span></div>
+    ${searching?`<div class="empty-state turn-loading"><div class="empty-icon">⌕</div><h3>Finding roles for this prompt…</h3><p>Searching the company job index while keeping your earlier messages here.</p></div>`:`<div class="result-head"><span><strong>${Number(turn.totalResults??results.length)} ${Number(turn.totalResults??results.length)===1?'role':'roles'}</strong> ${liveReady?`${feedNames.length?`from ${esc(feedNames.join(' + '))}`:'from company career pages'}, ranked by relevance and fit`:feedFailed?'company job index unavailable':'matching roles'}</span></div>
     ${turn.totalResults>results.length&&turn.resultsCaptured?'<p class="upload-note">Showing a saved preview. Rerun this prompt for current openings.</p>':''}
     ${results.length?`<div class="result-list">${results.map((job)=>renderJobCard(job)).join('')}</div>`:turn.totalResults>0?'':`<div class="empty-state"><div class="empty-icon">⌕</div><h3>${feedFailed?'The company job index is unavailable':liveReady?'No current listings matched this prompt':'No roles matched this prompt'}</h3><p>${feedFailed?'Retry this prompt in a moment.':'Try another title, location, or work mode in a follow-up prompt.'}</p>${liveReady?'<span class="assistant-caption">Listings can change. Confirm details on the original source before applying.</span>':''}</div>`}`}
   </section>`;
@@ -501,7 +501,14 @@ function renderProfile() {
 
 function tailorContent(job) {
   const p = state.profile;
-  const relevance = exp => (job.skills||[]).filter(skill=>String(exp.detail||'').toLowerCase().includes(skill.toLowerCase())).length;
+  const roleWords = new Set(String(job.title || '').toLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
+  const relevance = exp => {
+    const title = String(exp.title || '').toLowerCase();
+    const evidence = title + ' ' + String(exp.detail || '').toLowerCase();
+    const skillHits = (job.skills || []).filter(skill => evidence.includes(skill.toLowerCase())).length;
+    const titleHits = [...new Set(title.match(/[\p{L}\p{N}]+/gu) || [])].filter(word => roleWords.has(word)).length;
+    return skillHits + titleHits;
+  };
   const experience=(p.experience||[]).filter(exp=>exp.detail).sort((a,b)=>relevance(b)-relevance(a))[0];
   const skills = matchingSkills(job);
   const summary = state.tailoredEdits?.summary ?? (p.summary || p.title || '');
@@ -554,12 +561,12 @@ function renderSettings() {
   if (state.settingsTab==='privacy') body=`<h3>Privacy</h3><div class="setting-row"><div class="setting-row-copy"><strong>Export my data</strong><small>Download your profile, saved roles and tracker as JSON.</small></div><button class="secondary-button" data-action="export-data">Export data</button></div><div class="setting-row"><div class="setting-row-copy"><strong>${cloud.enabled?'Delete my account':'Delete local demo data'}</strong><small>${cloud.enabled?'Permanently remove your login, profile, chats, tracker and stored CV.':'Remove saved profile, chats, CV filename and applications from this browser.'}</small></div><button class="danger-button" data-action="delete-data">${cloud.enabled?'Delete account':'Delete data'}</button></div><div class="setting-row"><div class="setting-row-copy"><strong>CV handling</strong><small>${cloud.enabled?'Your latest CV (PDF only, up to 1 MB) is parsed in memory, then stored privately in your account. Uploading a new CV replaces it.':'Uploaded CVs are sent to the Hireloom server, parsed in memory and not retained by the app.'}</small></div><span class="tag green">${cloud.enabled?'Private storage':'In-memory processing'}</span></div>`;
   if (state.settingsTab==='language') body=`<h3>Language</h3><div class="setting-row"><div class="setting-row-copy"><strong>Interface language</strong><small>Choose the language used in Hireloom.</small></div><select class="settings-select" disabled><option>English</option></select></div>`;
   if (state.settingsTab==='help') body=`<h3>Help and terms</h3><div class="setting-row"><div class="setting-row-copy"><strong>About this MVP</strong><small>Search reads a daily index of open roles from 300 company career pages. Your prompt location takes priority over your profile locations.</small></div><span class="tag">Demo</span></div><div class="setting-row"><div class="setting-row-copy"><strong>Human review</strong><small>You review your profile, CV edits and application status. Authorization and salary answers are never generated.</small></div></div>`;
-  return `<div class="page-head"><div class="page-head-copy"><span class="eyebrow">Account controls</span><h1>Settings</h1><p class="subhead">Manage notifications, privacy and your local demo account.</p></div></div><div class="settings-layout"><nav class="card settings-nav">${tabs.map(([id,label])=>`<button class="${state.settingsTab===id?'active':''}" data-settings-tab="${id}">${label}</button>`).join('')}</nav><section class="card settings-content">${body}</section></div>`;
+  return `<div class="page-head"><div class="page-head-copy"><span class="eyebrow">Account controls</span><h1>Settings</h1><p class="subhead">Manage your profile, privacy and account.</p></div></div><div class="settings-layout"><nav class="card settings-nav">${tabs.map(([id,label])=>`<button class="${state.settingsTab===id?'active':''}" data-settings-tab="${id}">${label}</button>`).join('')}</nav><section class="card settings-content">${body}</section></div>`;
 }
 
 function renderPlans() {
-  const plans=[['Free','Chat search and matches','Tailored CV for each job','Application tracker','You apply yourself'],['One-click apply','Everything in Free','Answers from your saved profile','One-click apply','Review before every submission'],['Agent apply','Everything in One-click apply','Automatic applications for eligible native jobs','Status updates in the tracker','Explicit consent and pause switch']];
-  return `<div class="page-head"><div class="page-head-copy"><span class="eyebrow">Plans</span><h1>Simple plans, built around your control</h1><p class="subhead">Only the Free plan is available. Paid features are proposed.</p></div></div><div class="plans-grid">${plans.map((plan,index)=>`<section class="card plan-card ${index===0?'current':''}"><h3>${plan[0]}</h3><span class="plan-price">Price to be decided</span><ul>${plan.slice(1).map((item)=>`<li>${esc(item)}</li>`).join('')}</ul>${index===0?'<span class="plan-label">Current plan</span>':'<span class="plan-label">Planned</span>'}</section>`).join('')}</div>`;
+  return `<div class="page-head"><h1>Your plan</h1></div>
+    <section class="card plan-card current"><h2>Free</h2><ul><li>Search employer job listings</li><li>Tailor and download your CV</li><li>Track your applications</li></ul><span class="plan-label">Current plan</span></section>`;
 }
 
 function updateRoleSuggestions(input) {
@@ -637,7 +644,7 @@ function normalizeVoiceQuery(value) {
   const replacements=[
     [/softwareentwickler(?:in)?|software-entwickler(?:in)?/gi,'software developer'],
     [/dateningenieur(?:in)?/gi,'data engineer'],[/datenanalyst(?:in)?|datenanalytiker(?:in)?/gi,'data analyst'],
-    [/entwickler(?:in)?/gi,'developer'],[/münchen/gi,'Munich'],[/deutschland/gi,'Germany'],[/englisch/gi,'English'],[/deutsch/gi,'German'],[/\b(?:stellenangebote|arbeitsplätze|stellen)\b/gi,'jobs'],[/im homeoffice|aus dem homeoffice|von zu hause/gi,'remote'],[/mindestens drei jahre/gi,'3 years'],[/zwei jahre/gi,'2 years'],[/hybrid/gi,'hybrid'],
+    [/entwickler(?:in)?/gi,'developer'],[/münchen/gi,'Munich'],[/deutschland/gi,'Germany'],[/englisch/gi,'English'],[/deutsch/gi,'German'],[/(?<![\p{L}\p{M}\p{N}_])(?:stellenangebote|arbeitsplätze|stellen)(?![\p{L}\p{M}\p{N}_])/giu,'jobs'],[/im homeoffice|aus dem homeoffice|von zu hause/gi,'remote'],[/mindestens drei jahre/gi,'3 years'],[/zwei jahre/gi,'2 years'],[/hybrid/gi,'hybrid'],
     [/डेटा\s*इंजीनियर/gu,'data engineer'],[/डेटा\s*(?:एनालिस्ट|विश्लेषक)/gu,'data analyst'],[/सॉफ्टवेयर\s*इंजीनियर/gu,'software engineer'],[/इंजीनियर/gu,'engineer'],[/डेवलपर/gu,'developer'],[/बर्लिन/gu,'Berlin'],[/म्यूनिख/gu,'Munich'],[/जर्मनी/gu,'Germany'],[/भारत/gu,'India'],[/रिमोट|घर\s*से/gu,'remote'],[/हाइब्रिड/gu,'hybrid'],[/अंग्रेज़ी|अंग्रेजी/gu,'English'],[/जर्मन/gu,'German'],[/नौकरी|जॉब|काम/gu,'jobs'],[/तीन\s*साल/gu,'3 years'],[/दो\s*साल/gu,'2 years'],
     [/\bnaukri\b/gi,'jobs'],[/\bkaam\b/gi,'jobs'],[/\bberlin mein\b/gi,'Berlin'],[/\bmunich mein\b/gi,'Munich'],[/\bjarmani\b|\bgermany mein\b/gi,'Germany'],[/\bghar se\b/gi,'remote'],[/\bteen saal\b/gi,'3 years'],[/\bdo saal\b/gi,'2 years']
   ];
@@ -1284,7 +1291,6 @@ document.addEventListener('click',(event)=>{
     case 'add-achievement':{const input=$('#new-achievement'),item=input?.value.trim();if(!item){toast('Add an achievement first.');break;}syncVisibleProfileForm();if(!state.profile.achievements.some((value)=>value.toLowerCase()===item.toLowerCase()))state.profile.achievements.push(item);persist();render();break;}
     case 'remove-certification':syncVisibleProfileForm();state.profile.certifications.splice(Number(action.dataset.index),1);persist();render();break;
     case 'add-certification':{const input=$('#new-certification'),item=input?.value.trim();if(!item){toast('Add a certification first.');break;}syncVisibleProfileForm();if(!state.profile.certifications.some((value)=>value.toLowerCase()===item.toLowerCase()))state.profile.certifications.push(item);persist();render();break;}
-    case 'toggle-setting':state.settings[action.dataset.setting]=!state.settings[action.dataset.setting];persist();render();break;
     case 'export-data':downloadData();break;
     case 'delete-data':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Privacy</span><h2>${cloud.enabled?'Delete your account?':'Delete local demo data?'}</h2><p class="modal-copy">${cloud.enabled?'This permanently deletes your login, profile, conversations, tracker and stored CV from Hireloom. This action cannot be undone.':'This removes your saved profile, conversations, CV filename and tracker entries from this browser. This action cannot be undone.'}</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="danger-button" data-action="confirm-delete">${cloud.enabled?'Delete account':'Delete data'}</button></div>`);break;
     case 'confirm-delete':

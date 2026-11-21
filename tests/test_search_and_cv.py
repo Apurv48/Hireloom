@@ -46,6 +46,35 @@ class CareerSearchTests(unittest.TestCase):
         jobs.append(make_job("match", "Analyst", skills=["SQL"]))
         self.assertEqual(server.filter_live_jobs(jobs, "analyst", "India", [], ("sql",))[0]["id"], "match")
 
+    def test_lever_qualification_after_description(self):
+        source = {"company":"Example", "slug":"example", "provider":"lever", "careers_url":"https://example.org"}
+        record = {"id":1, "text":"Analyst", "hostedUrl":"https://example.org/job",
+                  "descriptionPlain":"Intro " * 300,
+                  "lists":[{"text":"Requirements","content":"<li>Python</li>"}]}
+        job = server.normalize_public_job(source, record)
+        self.assertIn("Python", job["skills"])
+        self.assertNotIn("Python", job["description"])
+
+    def test_unexpected_cv_errors_have_a_json_response(self):
+        from unittest.mock import Mock
+        for path, function in [("/api/parse-cv","parse_cv"), ("/api/render-cv","make_pdf")]:
+            with self.subTest(path=path):
+                handler = object.__new__(server.Handler)
+                handler.path = path
+                handler.allow_request = Mock(return_value=True)
+                handler.headers = {"Content-Type":"multipart/form-data; boundary=cv"}
+                body = (b'--cv\r\nContent-Disposition: form-data; name="file"; filename="cv.pdf"\r\n'
+                        b'Content-Type: application/pdf\r\n\r\nfixture\r\n--cv--\r\n')
+                handler.read_body = Mock(return_value=body if function=="parse_cv" else b'{"version":{}}')
+                handler.send_json = Mock()
+                with patch.object(server, function, side_effect=IndexError("internal")) as failing:
+                    handler.do_POST()
+                failing.assert_called_once()
+                code, payload = handler.send_json.call_args.args
+                self.assertEqual(code, 500)
+                self.assertIn("error", payload)
+                self.assertNotIn("internal", str(payload))
+
     def test_user_scoped_cv_storage_during_rollout(self):
         import io
         from unittest.mock import Mock

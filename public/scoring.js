@@ -7,7 +7,7 @@
     const hasText = (value) => String(value || '').trim().length > 0;
     const experiences = Array.isArray(profile.experience) ? profile.experience : [];
     const educationEntries = Array.isArray(profile.educationEntries) ? profile.educationEntries : [];
-    const skills = Array.isArray(profile.skills) ? profile.skills.filter(hasText) : [];
+    const skills = Array.isArray(profile.skills) ? profile.skills.filter(skill => typeof skill === 'string' && hasText(skill)) : [];
     let score = 67;
     if (hasText(profile.name)) score += 4;
     if (hasText(profile.email)) score += 4;

@@ -31,3 +31,15 @@ test('editing an ancestor recomputes dependent turns and preserves independent s
     [chat.turns[1].searchQuery,refreshed.sort().join(',')]`);
   assert.deepEqual(Array.from(result),['Java in Berlin remote','a,b']);
 });
+
+test('voice matches whole words, posting age uses publication time, and CV evidence can come from a later role', () => {
+  const run = browserLogic();
+  assert.equal(run("normalizeVoiceQuery('Stellen erstellen Ölstellen')"), 'jobs erstellen Ölstellen');
+  assert.equal(run("postingAge({published:Date.now()/1000-3*86400,posted:'Today'})"), '3 days ago');
+  assert.equal(run("new Set(Array.from({length:100},()=>makeSearchTurn('jobs').id)).size"), 100);
+  assert.equal(run(`state.profile.experience=[{detail:'Maintained reports'},{detail:'Used Python daily'}];
+    tailorContent({skills:['Python']}).experienceIndex`), 1);
+  assert.equal(run(`state.profile.experience=[{title:'Operations Manager',detail:'Maintained reports'},{title:'Accountant',detail:'Prepared statements'}];
+    tailorContent({title:'Accountant',skills:[]}).experienceIndex`), 1);
+  assert.equal(run("atsScoreForProfile({skills:['Excel',{},null]})"),67);
+});

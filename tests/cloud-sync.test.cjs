@@ -37,7 +37,7 @@ function workspace(write) {
   const sb = {
     auth: {
       onAuthStateChange(){},
-      getSession: async () => ({data:{session:{user:{id:owner}}}}),
+      getSession: async () => ({data:{session:{user:{id:owner},access_token:'fixture-'+owner}}}),
       signOut: async () => {signedOut=true;return {};},
     },
     from: () => ({
@@ -102,6 +102,14 @@ test('newer cloud data wins over a stale pending browser snapshot', async () => 
   assert.equal(localStorage.getItem('hireloom-cloud-pending:first'),null);
   await cloud.flush();
   assert.equal(writes.length,0);
+});
+
+test('CV upload checks the owner of the token after reading the file', async () => {
+  const {cloud,switchUser} = workspace(async () => ({}));
+  const file = {name:'cv.pdf',size:5,slice:()=>({
+    arrayBuffer:async()=>{switchUser('second');return Uint8Array.from(Buffer.from('%PDF-')).buffer;}
+  })};
+  await assert.rejects(cloud.uploadCv(file,'first'), /Account changed/);
 });
 
 test('failed writes stay available for retry and cannot go to another user', async () => {

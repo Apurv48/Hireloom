@@ -256,7 +256,12 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         location_values.extend(plain_text(value, 160) for value in all_locations if value)
         location = ", ".join(dict.fromkeys(value for value in location_values if value))
         url = safe_https_url(record.get("hostedUrl") or record.get("applyUrl"))
-        description = plain_text(record.get("descriptionPlain") or record.get("description"), None)
+        sections = [record.get("descriptionPlain") or record.get("description")]
+        for section in record.get("lists") or []:
+            if isinstance(section, dict):
+                sections.extend([section.get("text"), section.get("content")])
+        sections.append(record.get("additionalPlain") or record.get("additional"))
+        description = " ".join(plain_text(part, None) for part in sections if part)
         published_value = record.get("createdAt")
         workplace_type = str(record.get("workplaceType", "")).lower()
         provider_mode = {"remote": "Remote", "hybrid": "Hybrid", "on-site": "Onsite", "onsite": "Onsite"}.get(workplace_type, "")
@@ -997,7 +1002,19 @@ def make_pdf(payload: dict[str, object]) -> bytes:
     return output.getvalue()
 
 
+@lru_cache(maxsize=1)
+def local_response_headers():
+    config = json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
+    return next(rule["headers"] for rule in config["headers"] if rule["source"] == "/(.*)")
+
+
 class Handler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        if not os.environ.get("VERCEL"):
+            for header in local_response_headers():
+                self.send_header(header["key"], header["value"])
+        super().end_headers()
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
 
