@@ -544,6 +544,7 @@ function forgetUnusedJob(id) {
 }
 function renderTracker() {
   const filters = ['All','Applied','Not applied','External follow-up']; // only statuses the app records
+  if(!filters.includes(state.trackerFilter)) state.trackerFilter='All'; // a saved filter may name a removed status
   const visible = state.applications.filter((app) => state.trackerFilter==='All' || (state.trackerFilter==='External follow-up'?app.source==='External'&&['Opened','Not sure'].includes(app.status):app.status===state.trackerFilter));
   const counts = Object.fromEntries(filters.map((filter)=>[filter,filter==='All'?state.applications.length:filter==='External follow-up'?state.applications.filter((a)=>a.source==='External'&&['Opened','Not sure'].includes(a.status)).length:state.applications.filter((a)=>a.status===filter).length]));
   return `<div class="page-head"><div class="page-head-copy"><span class="eyebrow">Your search, kept in one place</span><h1>Applications</h1><p class="subhead">See each role, the CV version you used and the latest status you recorded.</p></div><button class="secondary-button" data-nav="chat">Find more jobs <span>↗</span></button></div>

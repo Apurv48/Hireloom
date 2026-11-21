@@ -32,3 +32,15 @@ test('German job words are replaced only as whole words', () => {
   assert.equal(context.normalizeVoiceQuery('Stellenangebote Entwickler in München'), 'jobs developer in Munich');
   assert.equal(context.normalizeVoiceQuery('Ich möchte vorstellen Python'), 'Ich möchte vorstellen Python');
 });
+
+test('a saved tracker filter that no longer exists falls back to All', () => {
+  const context = vm.createContext({
+    state: { applications: [], trackerFilter: 'Interview' },
+    esc: (value) => String(value ?? ''),
+    getJob: () => null,
+  });
+  vm.runInContext(extractFunction('renderTracker'), context);
+  const html = context.renderTracker();
+  assert.equal(context.state.trackerFilter, 'All');
+  assert.match(html, /class="tracker-filter active" data-tracker-filter="All"/);
+});
