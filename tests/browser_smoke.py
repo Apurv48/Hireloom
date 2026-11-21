@@ -12,7 +12,7 @@ from server import Handler, ThreadingHTTPServer
 
 
 def check_large_save_recovery(browser, base):
-    context = browser.new_context()
+    context = browser.new_context(bypass_csp=True)  # the page CSP blocks Playwright's own probes, not the app
     try:
         context.route("**/recovery-fixture*", lambda route: route.fulfill(
             content_type="text/html", body='<script src="/cloud.js"></script>'))
@@ -46,7 +46,7 @@ def main():
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(channel=os.getenv("HIRELOOM_BROWSER_CHANNEL"))
-            context = browser.new_context()
+            context = browser.new_context(bypass_csp=True)  # the page CSP blocks Playwright's own probes, not the app
             context.add_init_script("""
                 window.__credentialOffers = [];
                 window.PasswordCredential = class PasswordCredential {
