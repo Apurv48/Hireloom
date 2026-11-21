@@ -7,6 +7,28 @@ from scripts import refresh_job_index
 
 
 class CareerSearchTests(unittest.TestCase):
+    def setUp(self):
+        server._search_live_jobs_cached.cache_clear()
+
+    def test_generic_non_technical_skills_are_detected(self):
+        skills = server.known_skills("Experienced in patient care, payroll, procurement and food safety.")
+        self.assertEqual(skills, ["Payroll", "Procurement", "Patient care", "Food safety"])
+
+    def test_empty_feed_is_reported_as_a_failure(self):
+        source = {"company": "Empty Co", "provider": "greenhouse", "slug": "empty"}
+        with patch.object(server, "fetch_json_value", return_value={"jobs": []}), patch("scripts.refresh_job_index.time.sleep"):
+            jobs, error = refresh_job_index.fetch_source(source)
+        self.assertEqual(jobs, [])
+        self.assertIn("no records", error.lower())
+
+    def test_repeated_search_uses_cached_result(self):
+        index = {"jobs": [], "source_count": 300, "successful_sources": 300,
+                 "failed_sources": [], "generated_at": "cache-test"}
+        with patch.object(server, "load_job_index", return_value=index) as load:
+            server.search_live_jobs("accounting in india")
+            server.search_live_jobs("accounting in india")
+        self.assertEqual(load.call_count, 3)  # outer freshness checks plus one cached scan
+
     def test_greenhouse_listing_is_normalized(self):
         source = {"company": "Twilio", "provider": "greenhouse", "slug": "twilio",
                   "careers_url": "https://job-boards.greenhouse.io/twilio"}

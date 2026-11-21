@@ -68,7 +68,10 @@ def fetch_source(source: dict[str, object]) -> tuple[list[dict[str, object]], st
     for attempt in range(3):
         try:
             payload = server.fetch_json_value(source_url(source))
-            jobs = [server.normalize_public_job(source, record) for record in source_records(source, payload)]
+            records = source_records(source, payload)
+            if not records:
+                raise ValueError("Job feed returned no records; treating it as unavailable until verified.")
+            jobs = [server.normalize_public_job(source, record) for record in records]
             return [job for job in jobs if job], ""
         except HTTPError as exc:
             if exc.code != 429 and exc.code < 500:

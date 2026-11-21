@@ -8,18 +8,41 @@
     return;
   }
 
-  const sb = lib.createClient(cfg.url, cfg.anonKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
-  });
+  let lifecycleKeepalive = false;
+  const nativeFetch = typeof window.fetch === 'function' ? window.fetch.bind(window) : null;
+  const resilientFetch = nativeFetch ? (input, init = {}) => {
+    const bodyBytes = typeof init.body === 'string' ? new TextEncoder().encode(init.body).length : 0;
+    return nativeFetch(input, { ...init, keepalive: lifecycleKeepalive && bodyBytes <= 60000 });
+  } : undefined;
+  const options = { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } };
+  if (resilientFetch) options.global = { fetch: resilientFetch };
+  const sb = lib.createClient(cfg.url, cfg.anonKey, options);
   const TABLE = 'user_data';
   const BUCKET = 'cvs';
   const MAX_CV_BYTES = 1024 * 1024; // keep in sync with server.py and supabase/schema.sql
+  const PENDING_PREFIX = 'hireloom-cloud-pending:';
   const MIME = { pdf: 'application/pdf' }; // CV uploads are PDF only
   const cloud = { enabled: true, MAX_CV_BYTES, onSyncError: null };
   let timer = null;
   let pending = null;
   let writing = null;
   let lastErrorAt = 0;
+  function pendingKey(owner) { return `${PENDING_PREFIX}${owner}`; }
+  function savePending(entry) {
+    try { localStorage.setItem(pendingKey(entry.owner), JSON.stringify(entry)); } catch (error) { /* private mode or full storage */ }
+  }
+  function loadPending(owner) {
+    try {
+      const entry = JSON.parse(localStorage.getItem(pendingKey(owner)) || 'null');
+      return entry && entry.owner === owner && entry.state ? entry : null;
+    } catch (error) { return null; }
+  }
+  function clearPending(entry) {
+    try {
+      const saved = loadPending(entry.owner);
+      if (!saved || saved.savedAt === entry.savedAt) localStorage.removeItem(pendingKey(entry.owner));
+    } catch (error) { /* storage unavailable */ }
+  }
   sb.auth.onAuthStateChange((_event, session) => {
     const owner = session?.user?.id || null;
     if (pending && pending.owner !== owner) pending = null;
@@ -98,6 +121,7 @@
 
   // Local scope only, so signing out here does not sign the user out of their other devices.
   cloud.signOut = async () => {
+    await cloud.flush();
     const { error } = await sb.auth.signOut({ scope: 'local' });
     if (error) throw error;
     setFlag(false);
@@ -106,27 +130,42 @@
   cloud.pull = async (owner) => {
     const user = await cloud.getUser();
     if (!user || user.id !== owner) throw new Error('Account changed. Please sign in again.');
-    const { data, error } = await sb.from(TABLE).select('state').eq('user_id', user.id).maybeSingle();
+    const { data, error } = await sb.from(TABLE).select('state,updated_at').eq('user_id', user.id).maybeSingle();
     if (error) throw error;
+    const local = loadPending(owner);
+    if (local) {
+      const remoteSavedAt = Date.parse(data?.updated_at || '') || 0;
+      if (data?.state && remoteSavedAt >= Number(local.savedAt || 0)) {
+        if (pending?.owner === owner && Number(pending.savedAt || 0) <= remoteSavedAt) pending = null;
+        clearPending(local);
+        return data.state;
+      }
+      pending = local;
+      setTimeout(backgroundSave, 0);
+      return local.state;
+    }
     return data ? data.state : null;
   };
 
-  cloud.flush = () => {
+  cloud.flush = async () => {
     clearTimeout(timer);
     timer = null;
-    if (writing) return writing;
-    if (!pending) return Promise.resolve();
-    writing = (async () => {
-      while (pending) {
-        const entry = pending;
-        const user = await cloud.getUser();
-        if (!user || user.id !== entry.owner) throw new Error('Workspace owner changed');
-        const { error } = await sb.from(TABLE).upsert({ user_id: entry.owner, state: entry.state, updated_at: new Date().toISOString() });
-        if (error) throw error;
-        if (pending === entry) pending = null;
-      }
-    })().finally(() => { writing = null; });
-    return writing;
+    while (writing || pending) {
+      if (writing) { await writing; continue; }
+      const operation = (async () => {
+        while (pending) {
+          const entry = pending;
+          const user = await cloud.getUser();
+          if (!user || user.id !== entry.owner) throw new Error('Workspace owner changed');
+          const { error } = await sb.from(TABLE).upsert({ user_id: entry.owner, state: entry.state, updated_at: new Date(entry.savedAt).toISOString() });
+          if (error) throw error;
+          if (pending === entry) { pending = null; clearPending(entry); }
+        }
+      })();
+      writing = operation;
+      try { await operation; }
+      finally { if (writing === operation) writing = null; }
+    }
   };
 
   function backgroundSave() {
@@ -138,13 +177,17 @@
     });
   }
   cloud.queuePush = (build, owner) => {
-    pending = { owner, state: structuredClone(build()) };
+    pending = { owner, state: structuredClone(build()), savedAt: Date.now() };
+    savePending(pending);
     if (timer) clearTimeout(timer);
-    timer = setTimeout(backgroundSave, 2000);
+    timer = setTimeout(backgroundSave, 300);
   };
   window.addEventListener('online', backgroundSave);
-  window.addEventListener('pagehide', backgroundSave);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') backgroundSave(); });
+  window.addEventListener('pagehide', () => { lifecycleKeepalive = true; backgroundSave(); });
+  document.addEventListener('visibilitychange', () => {
+    lifecycleKeepalive = document.visibilityState === 'hidden';
+    if (lifecycleKeepalive) backgroundSave();
+  });
 
   // One CV per user: a new upload replaces the previous file.
   cloud.uploadCv = async (file, owner) => {
@@ -153,6 +196,8 @@
     const ext = extensionOf(file.name);
     if (!MIME[ext]) throw new Error('Only PDF CVs are accepted. Save your CV as a PDF and upload that file.');
     if (file.size > MAX_CV_BYTES) throw new Error('The CV must be 1 MB or smaller.');
+    const signature = new Uint8Array(await file.slice(0, 5).arrayBuffer());
+    if (String.fromCharCode(...signature) !== '%PDF-') throw new Error('This file is not a real PDF. Save it as a PDF and try again.');
     const path = `${user.id}/cv.${ext}`;
     const { error } = await sb.storage.from(BUCKET).upload(path, file, { upsert: true, contentType: MIME[ext] });
     if (error) throw error;
@@ -170,7 +215,7 @@
   cloud.deleteAccount = async () => {
     if (timer) clearTimeout(timer);
     timer = null;
-    if (writing) await writing;
+    await cloud.flush();
     const user = await cloud.getUser();
     if (!user) throw new Error('Not signed in');
     const { data: files, error: listError } = await sb.storage.from(BUCKET).list(user.id);
@@ -182,6 +227,7 @@
     const { error } = await sb.rpc('delete_my_account');
     if (error) throw error;
     pending = null;
+    try { localStorage.removeItem(pendingKey(user.id)); } catch (error) { /* storage unavailable */ }
     await cloud.signOut();
   };
 

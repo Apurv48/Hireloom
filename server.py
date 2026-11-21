@@ -31,7 +31,7 @@ JOB_INDEX_PATH = ROOT / "data" / "jobs.json.gz"
 JOB_INDEX_MANIFEST_PATH = ROOT / "data" / "job_index.json"
 JOB_INDEX_REMOTE_URL = os.environ.get(
     "HIRELOOM_JOB_INDEX_URL",
-    "https://github.com/Apurv48/Hireloom/releases/download/job-index/jobs.json.gz" if os.environ.get("VERCEL") else "",
+    "",
 )
 JOB_INDEX_REMOTE_CACHE_SECONDS = 4 * 60 * 60
 JOB_INDEX_MAX_BYTES = 12 * 1024 * 1024
@@ -44,12 +44,30 @@ PORT = int(os.environ.get("PORT", "8765"))
 # This also sits well under Vercel's 4.5 MB request limit. Keep in sync with public/app.js, public/cloud.js and supabase/schema.sql.
 MAX_FILE_BYTES = 1 * 1024 * 1024
 MAX_REQUEST_BYTES = MAX_FILE_BYTES + 128 * 1024
+MAX_PDF_PAGES = 30
+CV_RATE_LIMIT = 12
+CV_RATE_WINDOW_SECONDS = 60
+CV_RATE_LOCK = threading.Lock()
+CV_RATE_BUCKETS: dict[str, list[float]] = {}
+SEARCH_RATE_LIMIT = 30
 
 SKILLS = [
     "Python", "SQL", "JavaScript", "TypeScript", "React", "Node.js", "REST APIs",
     "APIs", "AWS", "Azure", "GCP", "Airflow", "dbt", "Spark", "Docker",
     "Kubernetes", "Data pipelines", "Machine learning", "MLflow", "Jupyter",
     "Excel", "Tableau", "Power BI", "Looker", "Product analytics", "Figma",
+    "Accounting", "Bookkeeping", "Financial analysis", "Auditing", "Taxation",
+    "Sales", "Business development", "Customer service", "Retail", "Merchandising",
+    "Marketing", "Digital marketing", "SEO", "Content writing", "Public relations",
+    "Human resources", "Recruitment", "Payroll", "Training", "Project management",
+    "Operations", "Procurement", "Supply chain", "Logistics", "Inventory management",
+    "Quality assurance", "Quality control", "Lean manufacturing", "AutoCAD", "SolidWorks",
+    "Mechanical engineering", "Electrical engineering", "Civil engineering", "Construction",
+    "Nursing", "Patient care", "Pharmacy", "Clinical research", "Medical coding",
+    "Teaching", "Curriculum development", "Counselling", "Research", "Legal research",
+    "Contract management", "Compliance", "Risk management", "Hospitality", "Food safety",
+    "Event management", "Real estate", "Relationship management", "Communication",
+    "Leadership", "Negotiation", "Problem solving", "Team management",
 ]
 
 FEED_USER_AGENT = "HireloomMVP/1.0 (local personal job search)"
@@ -139,7 +157,7 @@ def posted_label(value: object) -> tuple[str, str]:
 
 def known_skills(text: str) -> list[str]:
     lowered = text.lower()
-    return [skill for skill in SKILLS if re.search(r"(?<![\w+#.])" + re.escape(skill.lower()) + r"(?![\w+#.])", lowered)]
+    return [skill for skill in SKILLS if re.search(r"(?<![\w+#])" + re.escape(skill.lower()) + r"(?![\w+#])", lowered)]
 
 
 COUNTRY_CODES = {
@@ -302,7 +320,7 @@ def _refresh_remote_job_index() -> Path | None:
         JOB_INDEX_LAST_CHECK = now
         try:
             request = Request(JOB_INDEX_REMOTE_URL, headers={"Accept": "application/gzip", "User-Agent": FEED_USER_AGENT})
-            with urlopen(request, timeout=8) as response:
+            with urlopen(request, timeout=2) as response:
                 content_length = int(response.headers.get("Content-Length", "0") or 0)
                 if content_length > JOB_INDEX_MAX_BYTES:
                     raise ValueError("Remote job index is too large.")
@@ -538,6 +556,14 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
 
 def search_live_jobs(query: str, location_hint: str = "", work_modes: list[str] | None = None) -> dict[str, object]:
     index = load_job_index()
+    generated = str(index.get("generated_at", ""))
+    return _search_live_jobs_cached(query, location_hint, tuple(work_modes or ()), generated)
+
+
+@lru_cache(maxsize=256)
+def _search_live_jobs_cached(query: str, location_hint: str, work_modes: tuple[str, ...], generated: str) -> dict[str, object]:
+    del generated
+    index = load_job_index()
     jobs = [job for job in index["jobs"] if isinstance(job, dict)]
     source_count = int(index.get("source_count", 0))
     successful = int(index.get("successful_sources", source_count))
@@ -551,7 +577,7 @@ def search_live_jobs(query: str, location_hint: str = "", work_modes: list[str] 
         "error": f"{len(failed)} sources were unavailable during the last refresh." if failed else "",
         "successful": successful,
     }
-    return {"jobs": filter_live_jobs(jobs, query, location_hint, work_modes), "sources": [source]}
+    return {"jobs": filter_live_jobs(jobs, query, location_hint, list(work_modes)), "sources": [source]}
 
 
 def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:
@@ -565,8 +591,12 @@ def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:
             raise RuntimeError("PDF support needs pdfplumber. Install it with: python -m pip install pdfplumber") from exc
         try:
             with pdfplumber.open(io.BytesIO(payload)) as pdf:
+                if len(pdf.pages) > MAX_PDF_PAGES:
+                    raise ValueError(f"The CV must be {MAX_PDF_PAGES} pages or fewer.")
                 text = "\n".join(page.extract_text() or "" for page in pdf.pages)
                 return text, len(pdf.pages)
+        except ValueError:
+            raise
         except Exception as exc:  # PDF parsing errors should return a useful message to the user.
             raise ValueError("We could not read this PDF. Check that it opens normally and is not password protected.") from exc
     raise ValueError("Only PDF CVs are accepted. Save your CV as a PDF and upload that file.")
@@ -718,7 +748,7 @@ def parse_cv(filename: str, payload: bytes) -> dict[str, object]:
     else:
         skills = list_values(raw_skill_lines + [value for value in [labeled_value(r"(?:technical\s+)?skills?|key\s+competencies|core\s+competencies|technologies|tools")] if value])
     for skill in SKILLS:
-        if re.search(r"(?<![\w+#.])" + re.escape(skill.lower()) + r"(?![\w+#.])", normalized, re.I) and skill.lower() not in {value.lower() for value in skills}:
+        if re.search(r"(?<![\w+#])" + re.escape(skill.lower()) + r"(?![\w+#])", normalized, re.I) and skill.lower() not in {value.lower() for value in skills}:
             skills.append(skill)
     if re.search(r"\bjs\b", normalized, re.I) and "JavaScript" not in skills:
         skills.append("JavaScript")
@@ -955,6 +985,9 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
         if parsed.path == "/api/search-jobs":
+            if not self.allow_request("search", SEARCH_RATE_LIMIT, 60):
+                self.send_json(429, {"error": "Too many searches. Wait a minute and try again."})
+                return
             query = parse_qs(parsed.query).get("q", [""])[0][:240]
             location_hint = parse_qs(parsed.query).get("location", [""])[0][:180]
             work_modes = [item.strip() for item in parse_qs(parsed.query).get("modes", [""])[0][:60].split(",") if item.strip()]
@@ -966,7 +999,16 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
+        try:
+            self.handle_post()
+        except Exception:
+            self.send_json(500, {"error": "Hireloom could not process this request. Please try again."})
+
+    def handle_post(self) -> None:
         path = urlsplit(self.path).path
+        if path in {"/api/render-cv", "/api/parse-cv"} and not self.allow_request("cv", CV_RATE_LIMIT, CV_RATE_WINDOW_SECONDS):
+            self.send_json(429, {"error": "Too many CV requests. Wait a minute and try again."})
+            return
         if path == "/api/render-cv":
             self.render_cv()
             return
@@ -994,6 +1036,19 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(200, result)
         except (ValueError, RuntimeError) as exc:
             self.send_json(422, {"error": str(exc)})
+
+    def allow_request(self, scope: str, limit: int, window_seconds: int) -> bool:
+        forwarded = self.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
+        client = f"{scope}:{forwarded or (self.client_address[0] if self.client_address else 'unknown')}"
+        now = time.monotonic()
+        with CV_RATE_LOCK:
+            recent = [stamp for stamp in CV_RATE_BUCKETS.get(client, []) if now - stamp < window_seconds]
+            if len(recent) >= limit:
+                CV_RATE_BUCKETS[client] = recent
+                return False
+            recent.append(now)
+            CV_RATE_BUCKETS[client] = recent
+            return True
 
     def read_body(self, limit: int, size_error: str) -> bytes | None:
         try:

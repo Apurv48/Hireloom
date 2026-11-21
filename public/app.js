@@ -277,19 +277,11 @@ function profileAllowsJob(job, locationTerms) {
 function matchScore(job) {
   const coverage = job.skills.length ? matchingSkills(job).length / job.skills.length : 0;
   const skillShift = Math.round((coverage - .5) * 8);
-  const mode = state.profile.workModes.includes(job.mode) || state.profile.workModes.length === 0 ? 0 : -6;
+  const mode = workModePenalty(state.profile.workModes,job.mode);
   return Math.min(97, Math.max(48, job.match + skillShift + mode));
 }
-function atsScore() {
-  let score = 67;
-  if (state.profile.name) score += 4;
-  if (state.profile.email) score += 4;
-  if (state.profile.phone) score += 3;
-  if (state.profile.experience?.length) score += 8;
-  if (state.profile.education) score += 5;
-  if (state.profile.skills?.length >= 3) score += 7;
-  return Math.min(98, score);
-}
+const {atsScoreForProfile,workModePenalty}=window.HireloomScoring;
+function atsScore() { return atsScoreForProfile(state.profile); }
 function tokensForSearch(query) { return String(query).toLowerCase().replace(/\b\d+\+?\s*(years?|yrs?)\b/g,' ').match(/[a-z][a-z0-9+#.-]*/g) || []; }
 // Keep in sync with SEARCH_SYNONYMS in server.py.
 const SEARCH_SYNONYMS={ml:['machine learning'],ai:['artificial intelligence'],pm:['product manager'],js:['javascript'],ts:['typescript'],k8s:['kubernetes'],qa:['quality assurance'],ux:['user experience']};
@@ -375,6 +367,8 @@ function render() {
   const cursor=focused ? [draft.selectionStart,draft.selectionEnd] : null;
   content.dataset.chat=state.view==='chat' ? state.activeChatId : '';
   content.innerHTML=renderView();attachViewEvents();
+  const verifiedEmail=$('#p-email');
+  if(verifiedEmail){verifiedEmail.readOnly=true;verifiedEmail.removeAttribute('name');verifiedEmail.setAttribute('aria-readonly','true');verifiedEmail.nextElementSibling.textContent='Managed by your Hireloom account';}
   const nextEdit=editor && $('.prompt-edit-input');
   if(nextEdit){
     nextEdit.value=editor.value;
@@ -432,8 +426,8 @@ function renderJobCard(job,scoreOverride) {
   const score = Number.isFinite(scoreOverride)?scoreOverride:Number.isFinite(job.fitScore)?job.fitScore:matchScore(job);
   const saved = state.savedJobs.includes(job.id);
   return `<article class="job-card">
-    <div class="job-card-top"><div><button class="job-title-button" data-job="${job.id}">${esc(job.title)}</button><div class="company-line">${esc(job.company)} <span>·</span> ${esc(job.location)}</div></div><div class="fit-badge"><strong>${score}</strong><small>FIT</small></div></div>
-    <div class="job-card-bottom"><div class="tag-row"><span class="tag ${job.mode==='Remote'?'green':''}">${esc(job.mode)}</span>${job.isLive?`<a class="tag" href="${esc(job.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(job.source)}</a>`:`<span class="tag">${esc(job.source)}</span>`}<span class="tag">Posted ${esc(job.posted)}</span></div><div class="job-actions"><button class="save-job ${saved?'saved':''}" data-action="save-job" data-id="${job.id}" aria-label="${saved?'Remove saved job':'Save job'}">${saved?'♥':'♡'}</button><button class="text-button" data-job="${job.id}">View job <span>↗</span></button></div></div>
+    <div class="job-card-top"><div><button class="job-title-button" data-job="${esc(job.id)}">${esc(job.title)}</button><div class="company-line">${esc(job.company)} <span>·</span> ${esc(job.location)}</div></div><div class="fit-badge"><strong>${score}</strong><small>FIT</small></div></div>
+    <div class="job-card-bottom"><div class="tag-row"><span class="tag ${job.mode==='Remote'?'green':''}">${esc(job.mode)}</span>${job.isLive?`<a class="tag" href="${esc(job.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(job.source)}</a>`:`<span class="tag">${esc(job.source)}</span>`}<span class="tag">Posted ${esc(job.posted)}</span></div><div class="job-actions"><button class="save-job ${saved?'saved':''}" data-action="save-job" data-id="${esc(job.id)}" aria-label="${saved?'Remove saved job':'Save job'}">${saved?'♥':'♡'}</button><button class="text-button" data-job="${esc(job.id)}">View job <span>↗</span></button></div></div>
   </article>`;
 }
 
@@ -639,7 +633,7 @@ function attachViewEvents() {
   const promptEdit=$('.prompt-edit-input');
   if(promptEdit) promptEdit.addEventListener('input',()=>{const save=promptEdit.closest('.user-prompt-edit')?.querySelector('[data-action="save-prompt-edit"]');if(save)save.disabled=!promptEdit.value.trim()||promptEdit.value.trim()===promptEdit.dataset.original.trim();});
   const profileForm=$('#profile-form');
-  if(profileForm) profileForm.addEventListener('submit',(event)=>{event.preventDefault();saveProfile(new FormData(profileForm));});
+  if(profileForm) profileForm.addEventListener('submit',async(event)=>{event.preventDefault();await saveProfile(new FormData(profileForm));});
   $$('[data-role-search]').forEach((input)=>{
     const box=input.parentElement.querySelector('.role-suggestions');
     input.addEventListener('focus',()=>updateRoleSuggestions(input));
@@ -813,7 +807,17 @@ function syncSnapshot() {
     }
     return {...chat,turns};
   });
-  return {...rest,pinnedJobs,chats};
+  const snapshot={...rest,pinnedJobs,chats};
+  const sizeOf=(value)=>encoder.encode(JSON.stringify(value)).length;
+  const maxBytes=1800000;
+  while(sizeOf(snapshot)>maxBytes){
+    const candidate=[...snapshot.chats].reverse().find((item)=>item.id!==state.activeChatId&&(item.turns||[]).length);
+    if(candidate){candidate.turns.shift();continue;}
+    const active=snapshot.chats.find((item)=>item.id===state.activeChatId);
+    if(active?.turns?.length>1){active.turns.shift();continue;}
+    break;
+  }
+  return snapshot;
 }
 function resetSearchCaches() {
   pendingCvFile=null;pendingConsentFile=null;editingPromptTurnId=null;pendingDeleteChatId=null;
@@ -975,6 +979,12 @@ function editPromptInPlace(chat,turn,query) {
   cancelVoiceSearch(false);
   const previous=chat.turns[chat.turns.indexOf(turn)-1];
   turn.query=query;turn.searchQuery=resolveFollowup(query,previous?.searchQuery||previous?.query);
+  const changedIndex=chat.turns.indexOf(turn);
+  for(let index=changedIndex+1;index<chat.turns.length;index++){
+    const item=chat.turns[index],prior=chat.turns[index-1];
+    const resolved=resolveFollowup(item.query,prior?.searchQuery||prior?.query);
+    if(resolved!==item.searchQuery){item.searchQuery=resolved;startLiveSearch(chat,true,item.id);}
+  }
   if(chat.turns[0]===turn)chat.title=query.length>33?`${query.slice(0,32)}…`:query;
   if(chat.turns[chat.turns.length-1]===turn)chat.query=query;
   startLiveSearch(chat,true,turn.id);
@@ -1102,7 +1112,7 @@ function updateExternalAnswer(appId,answer) {
 
 function syncProfileForm(formData) {
   const p=state.profile;
-  ['name','email','phone','location','gender','dob','summary','title','interestedLocation','scope','relocation','salary','currentSalary'].forEach((key)=>{if(formData.has(key))p[key]=String(formData.get(key)).trim();});
+  ['name','phone','location','gender','dob','summary','title','interestedLocation','scope','relocation','salary','currentSalary'].forEach((key)=>{if(formData.has(key))p[key]=String(formData.get(key)).trim();});
   if(formData.has('roles'))p.roles=toList(formData.get('roles'));
   if(formData.has('experienceCount')){const count=Math.min(20,Math.max(0,Number(formData.get('experienceCount'))||0));p.experience=Array.from({length:count},(_,index)=>({title:String(formData.get(`experienceTitle${index}`)||'').trim(),company:String(formData.get(`experienceCompany${index}`)||'').trim(),dates:String(formData.get(`experienceDates${index}`)||'').trim(),detail:String(formData.get(`experienceDetail${index}`)||'').trim()})).filter((experience)=>Object.values(experience).some(Boolean));}
   if(formData.has('educationCount')){const count=Math.min(20,Math.max(0,Number(formData.get('educationCount'))||0));p.educationEntries=Array.from({length:count},(_,index)=>({qualification:String(formData.get(`educationQualification${index}`)||'').trim(),institution:String(formData.get(`educationInstitution${index}`)||'').trim(),dates:String(formData.get(`educationDates${index}`)||'').trim(),details:String(formData.get(`educationDetails${index}`)||'').trim()})).filter((entry)=>Object.values(entry).some(Boolean));p.education=educationSummary(p.educationEntries);}
@@ -1110,9 +1120,14 @@ function syncProfileForm(formData) {
   if($('#profile-form input[name="workModes"]'))p.workModes=formData.getAll('workModes');
 }
 function syncVisibleProfileForm() { const form=$('#profile-form');if(form)syncProfileForm(new FormData(form)); }
-function saveProfile(formData) {
+async function saveProfile(formData) {
   syncProfileForm(formData);
-  persist();render();const saved=$('#profile-saved');if(saved)saved.classList.remove('hidden');toast(cloud.enabled?'Profile saved to your account.':'Profile saved in this browser.','success');
+  persist();
+  if(cloud.enabled&&workspaceUserId){
+    try{await cloud.flush();}
+    catch(error){render();toast('Your profile is saved in this browser and will retry syncing when the connection returns.','error');return;}
+  }
+  render();const saved=$('#profile-saved');if(saved)saved.classList.remove('hidden');toast(cloud.enabled?'Profile saved to your account.':'Profile saved in this browser.','success');
 }
 function handleUpload(file) {
   const input=$('#cv-upload');if(input)input.value='';  // lets the same file be chosen again later
@@ -1146,7 +1161,7 @@ function showCvDraftReview() {
   const d=pending.draft;
   const groups=[
     ['About you',[
-      ['name','Full name',d.name],['email','Email',d.email],['phone','Phone number',d.phone],['location','Current location',d.location],
+      ['name','Full name',d.name],['phone','Phone number',d.phone],['location','Current location',d.location],
       ['gender','Gender',d.gender],['dob','Date of birth',d.dob],['summary','Profile summary',d.summary]
     ]],
     ['Career',[
@@ -1182,11 +1197,11 @@ function showCvDraftReview() {
   $('#cv-draft-form').addEventListener('submit',(event)=>{
     event.preventDefault();
     const form=new FormData(event.currentTarget),selected=new Set(form.getAll('fields')),draft=state.pendingCvDraft.draft,p=state.profile;
-    const scalarFields=['name','email','phone','location','gender','dob','title','summary','languages','education','interestedLocation','scope','relocation','salary','currentSalary'];
+    const scalarFields=['name','phone','location','gender','dob','title','summary','languages','education','interestedLocation','scope','relocation','salary','currentSalary'];
     for(const key of scalarFields){
       if(!selected.has(key)||!form.has(`value-${key}`))continue;
       const value=String(form.get(`value-${key}`)||'').trim();
-      if((key==='name'||key==='email')&&!value)continue;
+      if(key==='name'&&!value)continue;
       p[key]=key==='summary'?value.slice(0,1200):value;
     }
     if(selected.has('education'))p.educationEntries=legacyEducationEntries(p.education);
