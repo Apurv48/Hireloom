@@ -1,10 +1,35 @@
 {
   "version": 1,
-  "generated_at": "2026-11-19T02:54:11Z",
+  "generated_at": "2026-11-21T05:35:10Z",
   "source_count": 300,
-  "successful_sources": 300,
-  "failed_sources": [],
-  "job_count": 49344,
+  "successful_sources": 296,
+  "failed_sources": [
+    {
+      "company": "One Medical",
+      "provider": "greenhouse",
+      "slug": "onemedical",
+      "error": "ValueError: No usable job records; check the provider schema."
+    },
+    {
+      "company": "CannonDesign",
+      "provider": "greenhouse",
+      "slug": "cannondesign",
+      "error": "ValueError: No usable job records; check the provider schema."
+    },
+    {
+      "company": "Easypost 2",
+      "provider": "lever",
+      "slug": "easypost-2",
+      "error": "ValueError: Job feed returned no records; treating it as unavailable until verified."
+    },
+    {
+      "company": "Shieldai",
+      "provider": "lever",
+      "slug": "shieldai",
+      "error": "ValueError: Job feed returned no records; treating it as unavailable until verified."
+    }
+  ],
+  "job_count": 49605,
   "files": [
     "jobs-00.json.gz",
     "jobs-01.json.gz",
