@@ -234,3 +234,17 @@ class SearchRelevanceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PostedLabelTests(unittest.TestCase):
+    def test_posted_label_is_recomputed_for_cached_results(self):
+        from unittest import mock
+        import time
+        three_days_ago = str(int(time.time()) - 3 * 86400)
+        cached = {"jobs": [{"id": "x", "published": three_days_ago, "posted": "Today"}], "sources": []}
+        with mock.patch.object(server, "load_job_index", return_value={"jobs": []}), \
+             mock.patch.object(server, "_search_live_jobs_cached", return_value=cached):
+            result = server.search_live_jobs("python", "India")
+        self.assertEqual(result["jobs"][0]["posted"], "3 days ago")
+        # The cached object itself must not be mutated.
+        self.assertEqual(cached["jobs"][0]["posted"], "Today")

@@ -581,7 +581,11 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
 def search_live_jobs(query: str, location_hint: str = "", work_modes: list[str] | None = None, profile_skills: tuple[str, ...] = ()) -> dict[str, object]:
     index = load_job_index()
     generated = str(index.get("generated_at", ""))
-    return _search_live_jobs_cached(query, location_hint, tuple(work_modes or ()), generated, profile_skills)
+    result = _search_live_jobs_cached(query, location_hint, tuple(work_modes or ()), generated, profile_skills)
+    # Posted labels ("Today", "3 days ago") are relative to now, so they are recomputed on every
+    # response rather than stored in the cached result, which can live for hours.
+    jobs = [{**job, "posted": posted_label(job.get("published"))[0]} for job in result["jobs"]]
+    return {**result, "jobs": jobs}
 
 
 @lru_cache(maxsize=256)
