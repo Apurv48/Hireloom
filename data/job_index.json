@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generated_at": "2026-11-22T08:14:13Z",
+  "generated_at": "2026-11-23T09:17:40Z",
   "source_count": 300,
-  "successful_sources": 296,
+  "successful_sources": 295,
   "failed_sources": [
     {
       "company": "One Medical",
@@ -17,6 +17,12 @@
       "error": "ValueError: No usable job records; check the provider schema."
     },
     {
+      "company": "Appen 2",
+      "provider": "lever",
+      "slug": "appen-2",
+      "error": "ValueError: Job feed returned no records; treating it as unavailable until verified."
+    },
+    {
       "company": "Easypost 2",
       "provider": "lever",
       "slug": "easypost-2",
@@ -29,7 +35,7 @@
       "error": "ValueError: Job feed returned no records; treating it as unavailable until verified."
     }
   ],
-  "job_count": 49605,
+  "job_count": 49783,
   "files": [
     "jobs-00.json.gz",
     "jobs-01.json.gz",
