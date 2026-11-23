@@ -112,6 +112,13 @@ test('CV upload checks the owner of the token after reading the file', async () 
   await assert.rejects(cloud.uploadCv(file,'first'), /Account changed/);
 });
 
+test('account deletion rejects a different account or email before touching storage', async () => {
+  const {cloud}=workspace(async()=>({}));
+  cloud.getUser=async()=>({id:'first',email:'Person@example.com'});
+  await assert.rejects(cloud.deleteAccount('second','person@example.com'), /Account changed/);
+  await assert.rejects(cloud.deleteAccount('first','other@example.com'), /email address/);
+});
+
 test('failed writes stay available for retry and cannot go to another user', async () => {
   let fail=true;
   const writes=[];

@@ -890,14 +890,81 @@ async function cloudLogout() {
   state=initialState();resetSearchCaches();authMode='login';authMessage='';
   closeModal();render();
 }
-async function cloudDeleteAccount() {
-  closeModal();toast('Deleting your account…');
-  try{await cloud.deleteAccount();}
-  catch(error){toast('Could not delete your account: '+(error.message||'try again'),'error');return;}
+async function cloudDeleteAccount(email) {
+  await cloud.deleteAccount(workspaceUserId,email);
   cancelVoiceSearch(false);session=false;workspaceUserId=null;
   try{localStorage.removeItem(STORAGE_KEY);}catch{}
   state=initialState();authData={...authData,lastEmail:''};authDraft={name:'',email:''};saveAuth();resetSearchCaches();authMode='login';authMessage='✓ Your account and data were deleted.';
-  render();
+  closeModal();render();
+}
+
+const deletionReasons=[
+  'I found a job', 'I am no longer looking for a job', 'I did not find relevant jobs',
+  'I had trouble using Hireloom', 'Privacy concerns', 'Other', 'Prefer not to say',
+];
+
+function showAccountDeletion() {
+  openModal(`<h2>Delete your account?</h2>
+    <form id="delete-account-form">
+      <div class="field"><label for="delete-reason">Reason for deleting</label>
+        <select id="delete-reason" name="reason" required><option value="">Select a reason</option>${deletionReasons.map(reason=>`<option>${esc(reason)}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label for="delete-email">Type your account email to confirm</label>
+        <input id="delete-email" name="email" type="email" autocomplete="off" required />
+      </div>
+      <p id="delete-account-status" role="status"></p>
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">Cancel</button>
+        <button type="submit" class="danger-button" disabled>Delete account</button></div>
+    </form>`);
+  const form=$('#delete-account-form');
+  const status=$('#delete-account-status');
+  const submit=form.querySelector('[type="submit"]');
+  const matchesEmail=()=>normalizeEmail(form.elements.email.value)===normalizeEmail(authData.lastEmail)&&!!authData.lastEmail;
+  const ready=()=>matchesEmail()&&form.elements.email.validity.valid&&deletionReasons.includes(form.elements.reason.value);
+  form.addEventListener('input',()=>{
+    status.textContent=form.elements.email.value&&!matchesEmail()?'Enter the email address you use to sign in.':'';
+    submit.disabled=!ready();
+  });
+  form.addEventListener('submit',event=>{
+    event.preventDefault();
+    if(!ready())return;
+    confirmAccountDeletion(normalizeEmail(form.elements.email.value));
+  });
+  form.elements.reason.focus();
+}
+
+function confirmAccountDeletion(email) {
+  openModal(`<h2>Permanently delete your account?</h2>
+    <p class="modal-copy">This permanently deletes your login, profile, chats, saved jobs, applications and stored CVs from Hireloom. This cannot be undone.</p>
+    <p id="delete-account-status" role="status"></p>
+    <div class="modal-actions">
+      <button type="button" class="secondary-button" data-action="close-modal">Cancel</button>
+      <button type="button" class="danger-button" id="delete-account-yes">Yes, delete my account</button>
+    </div>`);
+  const status=$('#delete-account-status');
+  const yes=$('#delete-account-yes');
+  const cancel=$('#modal-root [data-action="close-modal"]');
+  cancel.focus();
+  yes.addEventListener('click',async ()=>{
+    if(yes.disabled)return;
+    yes.disabled=cancel.disabled=true;
+    status.textContent='Deleting your account…';
+    try{
+      if(cloud.enabled)await cloudDeleteAccount(email);
+      else deleteLocalAccount();
+    }catch(error){
+      status.textContent='Could not delete your account. '+(error.message||'Try again.');
+      yes.disabled=cancel.disabled=false;
+    }
+  });
+}
+
+function deleteLocalAccount() {
+  localStorage.removeItem(workspaceKey);
+  if(normalizeEmail(JSON.parse(localStorage.getItem(STORAGE_KEY)||'null')?.profile?.email)===authData.lastEmail)localStorage.removeItem(STORAGE_KEY);
+  authData.accounts=authData.accounts.filter(account=>account.email!==authData.lastEmail);
+  authData.lastEmail='';saveAuth();endLocalSession();
+  toast('Your local account and workspace were deleted.','success');
 }
 async function storeCvFile(file) {
   try {
@@ -1293,13 +1360,7 @@ document.addEventListener('click',(event)=>{
     case 'remove-certification':syncVisibleProfileForm();state.profile.certifications.splice(Number(action.dataset.index),1);persist();render();break;
     case 'add-certification':{const input=$('#new-certification'),item=input?.value.trim();if(!item){toast('Add a certification first.');break;}syncVisibleProfileForm();if(!state.profile.certifications.some((value)=>value.toLowerCase()===item.toLowerCase()))state.profile.certifications.push(item);persist();render();break;}
     case 'export-data':downloadData();break;
-    case 'delete-data':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Privacy</span><h2>${cloud.enabled?'Delete your account?':'Delete local demo data?'}</h2><p class="modal-copy">${cloud.enabled?'This permanently deletes your login, profile, conversations, tracker and stored CV from Hireloom. This action cannot be undone.':'This removes your saved profile, conversations, CV filename and tracker entries from this browser. This action cannot be undone.'}</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="danger-button" data-action="confirm-delete">${cloud.enabled?'Delete account':'Delete data'}</button></div>`);break;
-    case 'confirm-delete':
-      if(cloud.enabled){cloudDeleteAccount();break;}
-      localStorage.removeItem(workspaceKey);
-      if (normalizeEmail(JSON.parse(localStorage.getItem(STORAGE_KEY)||'null')?.profile?.email) === authData.lastEmail) localStorage.removeItem(STORAGE_KEY);
-      authData.accounts=authData.accounts.filter(account=>account.email!==authData.lastEmail);
-      authData.lastEmail='';saveAuth();endLocalSession();toast('Your local account and workspace were deleted.','success');break;
+    case 'delete-data':showAccountDeletion();break;
     case 'logout':openModal(`<button class="modal-close" data-action="close-modal" aria-label="Close">×</button><span class="eyebrow">Account</span><h2>Log out of Hireloom?</h2><p class="modal-copy">${cloud.enabled?'Your workspace is saved to your Hireloom account. This device’s copy will be cleared.':'This ends the current demo session. Your local profile and tracker data will remain saved in this browser.'}</p><div class="modal-actions"><button class="secondary-button" data-action="close-modal">Cancel</button><button class="primary-button" data-action="confirm-logout">Log out</button></div>`);break;
     case 'confirm-logout':if(cloud.enabled){cloudLogout();break;}endLocalSession();break;
     case 'plan-select':toast(`${action.dataset.plan} is a prototype plan. No payment is collected.`);break;

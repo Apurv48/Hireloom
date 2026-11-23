@@ -235,28 +235,33 @@
     return data.signedUrl;
   };
 
-  async function removeAccount() {
+  async function removeAccount(owner, email) {
     if (timer) clearTimeout(timer);
     timer = null;
     if (writing) await writing.catch(()=>{});
     const user = await cloud.getUser();
-    if (!user) throw new Error('Not signed in');
+    if (!user || user.id !== owner) throw new Error('Account changed. Please sign in again.');
+    if (!email || user.email.trim().toLowerCase() !== email) throw new Error('Enter the email address you use to sign in.');
     const { data: files, error: listError } = await sb.storage.from(BUCKET).list(user.id);
     if (listError) throw listError;
     if (files && files.length) {
       const { error } = await sb.storage.from(BUCKET).remove(files.map((file) => `${user.id}/${file.name}`));
       if (error) throw error;
     }
+    const currentUser = await cloud.getUser();
+    if (currentUser?.id !== owner) throw new Error('Account changed. Please sign in again.');
     const { error } = await sb.rpc('delete_my_account');
     if (error) throw error;
     pending = null;
-    try { localStorage.removeItem(pendingKey(user.id)); } catch (error) { /* storage unavailable */ }
-    localStorage.removeItem(pendingKey(user.id)+':conflict');
-    await cloud.signOut();
+    try {
+      localStorage.removeItem(pendingKey(user.id));
+      localStorage.removeItem(pendingKey(user.id)+':conflict');
+    } catch { /* storage unavailable */ }
+    await cloud.signOut().catch(() => {});
   }
-  cloud.deleteAccount = async () => {
+  cloud.deleteAccount = async (owner, email) => {
     closing=true;
-    try { await removeAccount(); } finally { closing=false; }
+    try { await removeAccount(owner, email); } finally { closing=false; }
   };
   cloud.conflictCopy = owner => localStorage.getItem(pendingKey(owner)+':conflict');
 
