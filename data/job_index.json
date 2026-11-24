@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-11-23T09:17:40Z",
+  "generated_at": "2026-11-24T11:08:50Z",
   "source_count": 300,
   "successful_sources": 295,
   "failed_sources": [
@@ -35,7 +35,7 @@
       "error": "ValueError: Job feed returned no records; treating it as unavailable until verified."
     }
   ],
-  "job_count": 49783,
+  "job_count": 49700,
   "files": [
     "jobs-00.json.gz",
     "jobs-01.json.gz",
