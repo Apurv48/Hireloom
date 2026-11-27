@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import server  # noqa: E402
+from scripts.crawl_careers import crawl  # noqa: E402
 
 
 REGISTRY_PATH = ROOT / "data" / "company_boards.json"
@@ -37,8 +38,8 @@ PROVIDER_URLS = {
 def load_registry() -> list[dict[str, object]]:
     payload = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
     companies = payload.get("companies") if isinstance(payload, dict) else None
-    if not isinstance(companies, list) or len(companies) != 300:
-        raise ValueError("The company registry must contain exactly 300 sources.")
+    if not isinstance(companies, list) or not companies:
+        raise ValueError("The company registry must contain at least one source.")
     keys = {(str(item.get("provider")), str(item.get("slug"))) for item in companies if isinstance(item, dict)}
     if len(keys) != len(companies):
         raise ValueError("The company registry contains an invalid or duplicate source.")
@@ -65,6 +66,12 @@ def source_records(source: dict[str, object], payload: object) -> list[dict[str,
 
 
 def fetch_source(source: dict[str, object]) -> tuple[list[dict[str, object]], str]:
+    if source.get("provider") == "career-html":
+        try:
+            jobs = crawl(source)
+            return (jobs, "") if jobs else ([], "No usable JobPosting data found on the career pages.")
+        except Exception as exc:
+            return [], f"{type(exc).__name__}: {str(exc)[:160]}"
     for attempt in range(3):
         try:
             payload = server.fetch_json_value(source_url(source))
@@ -116,7 +123,8 @@ def write_bundle(payload: dict[str, object], shard_count: int = BUNDLE_SHARDS) -
     BUNDLE_MANIFEST_PATH.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def refresh(destination: Path = INDEX_PATH, workers: int = 12, minimum_success: int = 270) -> dict[str, object]:
+def refresh(destination: Path = INDEX_PATH, workers: int = 12, minimum_success: int = 270,
+            *, release_only: bool = False) -> dict[str, object]:
     companies = load_registry()
     results: list[tuple[list[dict[str, object]], str] | None] = [None] * len(companies)
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -147,7 +155,8 @@ def refresh(destination: Path = INDEX_PATH, workers: int = 12, minimum_success: 
         "jobs": list(unique.values()),
     }
     write_index(payload, destination)
-    write_bundle(payload)
+    if not release_only:
+        write_bundle(payload)
     return payload
 
 
@@ -156,8 +165,20 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=INDEX_PATH)
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--minimum-success", type=int, default=270)
+    parser.add_argument("--release-only", action="store_true", help="Write the release asset without rebuilding bundled shards.")
+    parser.add_argument("--crawl-source", metavar="SLUG", help="Preview one configured HTML source without writing the index.")
     args = parser.parse_args()
-    payload = refresh(args.output, max(1, min(args.workers, 20)), args.minimum_success)
+    if args.crawl_source:
+        source = next((item for item in load_registry()
+                       if item["slug"] == args.crawl_source and item["provider"] == "career-html"), None)
+        if source is None:
+            parser.error("Unknown HTML career source.")
+        jobs, error = fetch_source(source)
+        if error:
+            parser.exit(1, error + "\n")
+        print(json.dumps(jobs, ensure_ascii=True))
+        return
+    payload = refresh(args.output, max(1, min(args.workers, 20)), args.minimum_success, release_only=args.release_only)
     print(json.dumps({key: payload[key] for key in ("generated_at", "source_count", "successful_sources", "job_count")}))
     if payload["failed_sources"]:
         print("Unavailable sources:", ", ".join(item["company"] for item in payload["failed_sources"]), file=sys.stderr)

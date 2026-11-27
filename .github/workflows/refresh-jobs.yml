@@ -6,6 +6,7 @@ on:
     paths:
       - "data/company_boards.json"
       - "scripts/refresh_job_index.py"
+      - "scripts/crawl_careers.py"
       - ".github/workflows/refresh-jobs.yml"
   schedule:
     - cron: "17 1 * * *"
@@ -29,15 +30,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -r requirements.txt
-      - run: python scripts/refresh_job_index.py
+      - run: python scripts/refresh_job_index.py --release-only
       - run: python -m unittest discover -s tests -v
-      - name: Commit refreshed bundled fallback
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/job_index.json data/jobs-*.json.gz
-          git diff --cached --quiet || git commit -m "chore: refresh bundled job index"
-          git push
       - name: Publish refreshed index without growing Git history
         env:
           GH_TOKEN: ${{ github.token }}

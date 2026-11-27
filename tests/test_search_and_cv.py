@@ -1,5 +1,8 @@
+import gzip
+import json
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import server
@@ -9,6 +12,17 @@ from scripts import refresh_job_index
 class CareerSearchTests(unittest.TestCase):
     def setUp(self):
         server._search_live_jobs_cached.cache_clear()
+
+    def test_incomplete_release_index_falls_back_to_bundle(self):
+        with TemporaryDirectory() as temporary:
+            release = Path(temporary) / "release.json.gz"
+            with gzip.open(release, "wt", encoding="utf-8") as stream:
+                json.dump({"jobs": [], "job_count": 100}, stream)
+            bundled = {"jobs": [{"id": "fallback"}], "job_count": 1}
+            with patch.object(server, "_refresh_remote_job_index", return_value=release), \
+                 patch.object(server, "JOB_INDEX_PATH", Path(temporary) / "absent"), \
+                 patch.object(server, "_load_bundled_job_index", return_value=bundled):
+                self.assertEqual(server.load_job_index(), bundled)
 
     def test_generic_non_technical_skills_are_detected(self):
         skills = server.known_skills("Experienced in patient care, payroll, procurement and food safety.")
@@ -149,11 +163,11 @@ class CareerSearchTests(unittest.TestCase):
         self.assertEqual(result["sources"][0]["name"], "300 company career pages")
         self.assertEqual(result["sources"][0]["successful"], 298)
 
-    def test_registry_has_300_unique_sources(self):
+    def test_registry_has_301_unique_sources(self):
         sources = refresh_job_index.load_registry()
-        self.assertEqual(len(sources), 300)
-        self.assertEqual(len({(source["provider"], source["slug"]) for source in sources}), 300)
-        self.assertEqual({source["provider"] for source in sources}, {"greenhouse", "ashby", "lever"})
+        self.assertEqual(len(sources), 301)
+        self.assertEqual(len({(source["provider"], source["slug"]) for source in sources}), len(sources))
+        self.assertEqual({source["provider"] for source in sources}, {"greenhouse", "ashby", "lever", "career-html"})
 
     def test_checked_in_index_is_complete(self):
         server._load_bundled_job_index.cache_clear()
@@ -196,8 +210,40 @@ def make_job(job_id, title, mode="Remote", location="Bengaluru, India", descript
 
 
 class SearchRelevanceTests(unittest.TestCase):
+    def test_fresher_search_preserves_title_and_excludes_prior_experience(self):
+        jobs = [
+            make_job("adjacent", "Business Analyst", description="Work with data analysts"),
+            make_job("senior", "Senior Data Analyst"),
+            make_job("experienced", "Junior Data Analyst", description="Requires 2 years of experience"),
+            make_job("unknown", "Data Analyst"),
+            make_job("entry", "Graduate Data Analyst", description="No prior experience required"),
+        ]
+        for query in ("fresher data analyst", "data analyst jobs for freshers", "data analyst with 0 years experience"):
+            self.assertEqual(self.ids(jobs, query), ["entry", "unknown"])
+
     def ids(self, jobs, query, modes=None):
         return [job["id"] for job in server.filter_live_jobs(jobs, query, "India", modes)]
+
+    def test_search_uses_target_role_and_ignores_preferred_experience_minimum(self):
+        jobs = [
+            make_job("history", "Accountant"),
+            make_job("adjacent", "Business Analyst", description="Collaborate with data analysts"),
+            make_job("over", "Data Analyst", description="Requires 5 years of experience"),
+            make_job("fit", "Data Analyst", description="Requires 2 years of experience. Preferred: 5 years of experience."),
+        ]
+        self.assertEqual(self.ids(jobs, "I worked as an accountant. Find data analyst jobs with 3 years of experience"), ["fit"])
+
+    def test_title_and_experience_constraints(self):
+        jobs = [
+            make_job("wrong-role", "Product Manager", description="Work with a Python engineer"),
+            make_job("too-experienced", "Python Engineer", description="Requires 5 years of relevant experience"),
+            make_job("too-senior", "Senior Python Engineer"),
+            make_job("unlisted", "Python Engineer"),
+            make_job("fit", "Junior Python Developer", description="2–4 years of professional experience"),
+        ]
+        self.assertEqual(self.ids(jobs, "junior Python engineer with 3 years of experience"), ["fit", "unlisted"])
+        self.assertEqual(self.ids(jobs, "remote Python engineer with 3 years of experience", ["Hybrid"]),
+                         ["unlisted", "too-senior", "fit"])
 
     def test_keywords_match_whole_words_only(self):
         jobs = [make_job("js", "JavaScript Engineer", description="Build with JavaScript"),

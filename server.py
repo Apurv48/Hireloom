@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unicodedata
+import zlib
 from datetime import datetime, timezone
 from functools import lru_cache
 from xml.sax.saxutils import escape
@@ -33,10 +34,10 @@ JOB_INDEX_PATH = ROOT / "data" / "jobs.json.gz"
 JOB_INDEX_MANIFEST_PATH = ROOT / "data" / "job_index.json"
 JOB_INDEX_REMOTE_URL = os.environ.get(
     "HIRELOOM_JOB_INDEX_URL",
-    "",
+    "https://github.com/Apurv48/Hireloom/releases/download/job-index/jobs.json.gz",
 )
 JOB_INDEX_REMOTE_CACHE_SECONDS = 4 * 60 * 60
-JOB_INDEX_MAX_BYTES = 12 * 1024 * 1024
+JOB_INDEX_MAX_BYTES = 48 * 1024 * 1024
 JOB_INDEX_DOWNLOAD_PATH = Path(tempfile.gettempdir()) / "hireloom-jobs.json.gz"
 JOB_INDEX_DOWNLOAD_LOCK = threading.Lock()
 JOB_INDEX_LAST_CHECK = float("-inf")
@@ -278,7 +279,7 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         "location": location or "Location not listed", "mode": mode,
         "eligible": eligibility_for(location, remote), "languages": [],
         "source": company, "sourceUrl": careers_url, "route": "Company career page", "url": url,
-        "posted": posted, "published": published, "years": "Not listed", "match": 65,
+        "posted": posted, "published": published, "years": experience_label(description), "match": 65,
         "skills": known_skills(f"{title} {description}"),
         "description": description[:1200] or "See the employer’s posting for details.",
         "highlights": [], "reason": "Review the requirements and work location on the company career page.",
@@ -293,6 +294,15 @@ def _load_job_index(path: str, mtime_ns: int) -> dict[str, object]:
         payload = json.load(handle)
     if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
         raise ValueError("The company job index is invalid.")
+    return payload
+
+
+@lru_cache(maxsize=2)
+def _load_release_job_index(path: str, mtime_ns: int) -> dict[str, object]:
+    payload = _load_job_index(path, mtime_ns)
+    jobs = payload["jobs"]
+    if not jobs or payload.get("job_count") != len(jobs):
+        raise ValueError("The release job index is incomplete.")
     return payload
 
 
@@ -337,22 +347,25 @@ def _download_remote_index() -> None:
             temporary = Path(output.name)
             output.write(payload)
         try:
-            _load_job_index(str(temporary), temporary.stat().st_mtime_ns)
+            _load_release_job_index(str(temporary), temporary.stat().st_mtime_ns)
             temporary.replace(JOB_INDEX_DOWNLOAD_PATH)
         finally:
             temporary.unlink(missing_ok=True)
-    except (OSError, ValueError, EOFError):
+    except (OSError, ValueError, EOFError, zlib.error):
         pass
     finally:
         JOB_INDEX_DOWNLOAD_LOCK.release()
 
 
 def load_job_index() -> dict[str, object]:
-    remote = _refresh_remote_job_index()
-    if remote:
-        return _load_job_index(str(remote), remote.stat().st_mtime_ns)
     if JOB_INDEX_PATH.exists():
         return _load_job_index(str(JOB_INDEX_PATH), JOB_INDEX_PATH.stat().st_mtime_ns)
+    remote = _refresh_remote_job_index()
+    if remote:
+        try:
+            return _load_release_job_index(str(remote), remote.stat().st_mtime_ns)
+        except (OSError, ValueError, EOFError, zlib.error):
+            pass
     return _load_bundled_job_index(JOB_INDEX_MANIFEST_PATH.stat().st_mtime_ns)
 
 
@@ -362,7 +375,12 @@ def job_search_tokens(query: str) -> list[str]:
         "job", "jobs", "role", "roles", "position", "positions", "work", "looking", "find", "search",
         "remote", "hybrid", "onsite", "on", "site", "flexible", "junior", "senior", "mid", "level",
         "year", "years", "yr", "yrs", "experience", "experienced", "speaking", "fluent", "english", "german",
-        "french", "spanish", "worldwide", "anywhere",
+        "french", "spanish", "worldwide", "anywhere", "i", "me", "my", "have", "has", "am",
+        "show", "please", "want", "need", "someone", "only", "just", "about", "can", "you",
+        "entry", "graduate", "internship", "minimum", "maximum", "least", "up", "fit", "suitable",
+        "seeking", "open", "available", "current", "currently", "opportunities", "opportunity",
+        "opening", "openings", "some", "full-time", "part-time", "fresher", "freshers", "fresh",
+        "graduates", "no", "zero", "prior", "required",
     }
     return [token for token in re.findall(r"[a-z][a-z0-9+#.-]*", query.lower()) if token not in stop and not re.fullmatch(r"\d+\+?", token)][:12]
 
@@ -534,36 +552,108 @@ def resolve_search(query: str, location_hint: str = "") -> tuple[list[str], list
     return locations, [token for token in job_search_tokens(query) if token not in location_tokens]
 
 
+EXPERIENCE_YEARS = re.compile(r"\b(\d{1,2})(?:\s*[-–—]\s*(\d{1,2}))?\s*\+?\s*(?:years?|yrs?)\b", re.I)
+REQUIRED_EXPERIENCE = re.compile(EXPERIENCE_YEARS.pattern + r"(?:\s+of)?(?:\s+[\w/-]+){0,4}\s+experience\b", re.I)
+FRESHER_SEARCH = re.compile(r"\b(?:freshers?|fresh graduates?|no (?:prior |work )?experience|zero (?:years? of )?experience)\b", re.I)
+ROLE_TERMS = re.compile(
+    r"\b(?:engineers?|developers?|analysts?|managers?|designers?|scientists?|accountants?|"
+    r"nurses?|teachers?|recruiters?|consultants?|specialists?|technicians?|coordinators?|"
+    r"architects?|writers?|chefs?|electricians?|drivers?|auditors?|pharmacists?|therapists?|"
+    r"mechanics?|assistants?|administrators?|executives?)\b", re.I
+)
+LEVELS = {
+    "entry": re.compile(r"\b(?:junior|jr\.?|entry[- ]level|graduates?|trainee|associate)\b", re.I),
+    "senior": re.compile(r"\b(?:senior|sr\.?|staff|principal|lead|director|head of)\b", re.I),
+    "intern": re.compile(r"\b(?:intern|internship|apprentice)\b", re.I),
+    "mid": re.compile(r"\bmid[- ]level\b", re.I),
+}
+
+
+def required_experience(text: str) -> int | None:
+    matches = [int(match[1]) for match in REQUIRED_EXPERIENCE.finditer(text)
+               if int(match[1]) <= 40
+               and not re.search(r"\b(?:preferred(?: qualifications)?|nice to have)\s*[:–-]?\s*$", text[max(0, match.start()-36):match.start()], re.I)
+               and not re.search(r"\b(?:preferred|a plus|nice to have)\b", text[match.end():match.end() + 24], re.I)]
+    return max(matches, default=None)
+
+
+def experience_label(description: str) -> str:
+    minimum = required_experience(description)
+    return f"{minimum}+ years" if minimum is not None else "Not listed"
+
+
+def title_matches_role(title: str, role: str) -> bool:
+    role = role.removesuffix("s")
+    alternatives = ("engineer", "developer") if role in {"engineer", "developer"} else (role,)
+    return any(fields_hit(title, token_matchers(term)) for term in alternatives)
+
+
+def requested_roles(query: str, tokens: list[str]) -> list[tuple[str, list[str]]]:
+    """Keep each requested role attached to its own title qualifiers."""
+    criteria = []
+    for clause in re.split(r"[,;]|\b(?:or|and)\b", query):
+        for match in ROLE_TERMS.finditer(clause):
+            prefix = re.split(r"\b(?:in|near|with|for|as|at|by|experience)\b", clause[:match.start()])[-1]
+            words = job_search_tokens(prefix)
+            qualifiers = [word for word in words if word in tokens and not ROLE_TERMS.fullmatch(word)
+                          and not any(pattern.fullmatch(word) for pattern in LEVELS.values())]
+            criteria.append((match[0], qualifiers[-3:]))
+    return criteria
+
+
 def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: str = "", work_modes: list[str] | None = None, profile_skills: tuple[str, ...] = ()) -> list[dict[str, object]]:
     lowered = query.lower()
-    locations, tokens = resolve_search(query, location_hint)
+    # Previous work mentioned in the first person is candidate context.
+    target = re.sub(r"\b(?:i (?:was|worked|work|am currently)\b|my (?:current|previous) role\b)[^,;.!?]*?(?=\b(?:looking for|seeking|want|find|show me)\b|[,;.!?]|$)", " ", lowered)
+    locations, tokens = resolve_search(target, location_hint)
     prefer_india = not query_location_terms(query)
-    mode = "Remote" if re.search(r"\bremote\b", lowered) else "Hybrid" if re.search(r"\bhybrid\b", lowered) else "Onsite" if re.search(r"\b(on[- ]?site|in[- ]office)\b", lowered) else ""
+    mode = "Remote" if re.search(r"\bremote\b", target) else "Hybrid" if re.search(r"\bhybrid\b", target) else "Onsite" if re.search(r"\b(on[- ]?site|in[- ]office)\b", target) else ""
     allowed_modes = {item for item in (work_modes or []) if item in WORK_MODES}
     matchers = [token_matchers(token) for token in tokens]
     preferred_skills = set(profile_skills)
-    seniority = re.findall(r"\b(?:junior|senior)\b", lowered)
+    experience = EXPERIENCE_YEARS.search(lowered)
+    fresher = bool(FRESHER_SEARCH.search(lowered))
+    available_years = int(experience[2] or experience[1]) if experience else 0 if fresher else None
+    requested_levels = {level for level, pattern in LEVELS.items() if pattern.search(target)}
+    if available_years == 0 and not requested_levels:
+        requested_levels = {"entry", "intern"}
+    roles = [(role, [(token_matchers(word), bool(known_skills(word))) for word in qualifiers])
+             for role, qualifiers in requested_roles(target, tokens)]
     ranked = []
     for job in jobs:
         if mode and job.get("mode") != mode:
             continue
         # Applied before the 60-result cap, so a profile's work mode is not lost to ranking.
-        if allowed_modes and job.get("mode") not in allowed_modes and job.get("mode") not in UNLISTED_MODES:
+        if not mode and allowed_modes and job.get("mode") not in allowed_modes and job.get("mode") not in UNLISTED_MODES:
             continue
         if not location_matches(job, locations):
             continue
         title = str(job.get("title", "")).lower()
         skills = " ".join(str(skill) for skill in (job.get("skills") or [])).lower()
+        if roles and not any(
+            title_matches_role(title, role) and all(
+                fields_hit(title, alts) or (is_skill and fields_hit(skills, alts))
+                for alts, is_skill in qualifiers
+            ) for role, qualifiers in roles
+        ):
+            continue
+        title_levels = {level for level, pattern in LEVELS.items() if requested_levels and pattern.search(title)}
+        if title_levels and not title_levels.intersection(requested_levels):
+            continue
+        experience_fit = 0
+        if available_years is not None:
+            indexed = EXPERIENCE_YEARS.match(str(job.get("years", "")))
+            minimum = int(indexed[1]) if indexed else required_experience(str(job.get("description", "")))
+            if minimum is not None and minimum > available_years:
+                continue
+            experience_fit = int(minimum is not None or bool(FRESHER_SEARCH.search(str(job.get("description", "")))))
         other = " ".join(str(job.get(key, "")) for key in ("company", "location", "description")).lower()
         # Weights: title 3, skills 2, other text 1.
         score = sum(3 if fields_hit(title, alts) else 2 if fields_hit(skills, alts) else 1 if fields_hit(other, alts) else 0 for alts in matchers)
         if tokens and score == 0:
             continue
-        for level in seniority:
-            if re.search(r"\b" + level + r"\b", title):
-                score += 3
-        if "data analyst" in lowered and "analyst" in title:
-            score += 4
+        if roles and len(tokens) > 1 and fields_hit(title, token_matchers(" ".join(tokens))):
+            score += 7 if title.strip() == " ".join(tokens) else 6
         if "ml" in tokens and re.search(r"\b(?:machine learning|ml)\b", f"{title} {skills}"):
             score += 5
         try:
@@ -573,8 +663,9 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
         in_india = int(prefer_india and ("India" in job.get("eligible", []) or "india" in normalize_location(job.get("location", "")).split()))
         required = [str(skill).strip().lower() for skill in job.get("skills", [])]
         fit = sum(skill in preferred_skills for skill in required) / len(required) if required else 0.5
-        ranked.append((score, fit if preferred_skills else 0, in_india, freshness, job))
-    ranked.sort(key=lambda item: item[:4], reverse=True)
+        ranked.append((bool(title_levels), experience_fit if available_years == 0 else 0, score,
+                       experience_fit, fit if preferred_skills else 0, in_india, freshness, job))
+    ranked.sort(key=lambda item: item[:-1], reverse=True)
     return [job for *_, job in ranked[:60]]
 
 

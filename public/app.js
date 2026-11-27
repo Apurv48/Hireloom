@@ -455,22 +455,37 @@ function renderChat() {
   </section></div>`;
 }
 
+function jobDescriptionPreview(job) {
+  const raw=String(job.description||'');
+  const description=raw.trim();
+  if(!job.isLive||raw.length<1200)return description;
+  const complete=description.match(/^.*[.!?](?=\s|$)/s)?.[0];
+  if(complete&&complete.length>=description.length-240)return complete;
+  const lastSpace=description.lastIndexOf(' ');
+  return (lastSpace>0?description.slice(0,lastSpace):description).replace(/[,:;\s]+$/,'')+'…';
+}
+
 function renderJobDetail() {
   const job = getJob(state.selectedJobId);
   if (!job) { state.view='chat'; return renderChat(); }
   const matched = matchingSkills(job), missing = missingSkills(job), score = matchScore(job), readiness = atsScore();
   const approved = state.cvVersions.find((version) => version.jobId === job.id && version.approved);
   const history = state.applications.find((app) => app.jobId === job.id);
-  const fitNote=missing.length?`Review ${missing.slice(0,2).map(esc).join(' and ')} against your real experience before tailoring. Hireloom will not add unconfirmed skills.`:`Your confirmed profile covers every skill listed in this role.`;
+  const fitNote=!job.skills.length?'Hireloom has no skill tags for this listing. Check the employer posting for requirements.':missing.length?`Review ${missing.slice(0,2).map(esc).join(' and ')} against your real experience before tailoring. Hireloom will not add unconfirmed skills.`:`Your confirmed profile covers every skill listed in this role.`;
   const routeCopy=job.isLive?`Found on ${esc(job.source)}. Track and apply opens the employer’s original listing and records the handoff in your pipeline.`:job.source==='Native'?'This prototype records the application in your tracker. No application is sent to a real employer.':'This assisted route records a reviewed handoff in your tracker.';
   return `<div class="job-breadcrumb"><button class="back-link" data-action="back-jobs">Back to job discovery</button><span>•</span><span>${esc(job.source)} listing</span>${history?`<span class="pipeline-status">${esc(history.status||'Tracked')}</span>`:''}</div>
     ${approved?`<div class="job-intelligence-banner"><strong>CV ready for this role</strong><span>Tailored CV v${approved.version} is approved and ready to download.</span></div>`:''}
-    <header class="job-detail-hero"><div class="job-detail-title"><span class="eyebrow">${job.isLive?'Apply on the employer site':job.source==='Native'?'Hireloom application':'Assisted application'}</span><h1>${esc(job.title)}</h1><div class="detail-company"><strong>${esc(job.company)}</strong><span>•</span><span>${esc(job.location)}</span><span>•</span><span>Posted ${esc(postingAge(job))}</span></div><div class="tag-row detail-tags"><span class="tag primary">${esc(job.source)}</span><span class="tag ${job.mode==='Remote'?'green':''}">${esc(job.mode)}</span><span class="tag">${esc(job.years)}</span><span class="tag green">Open to ${esc(job.eligible.join(', '))}</span>${job.skills.slice(0,2).map((skill)=>`<span class="tag">${esc(skill)}</span>`).join('')}</div></div><button class="secondary-button job-save-button" data-action="save-job" data-id="${esc(job.id)}">${state.savedJobs.includes(job.id)?'♥ Saved':'♡ Save job'}</button></header>
-    <div class="job-detail-grid"><article class="card job-detail-main"><div class="job-card-heading"><div><span class="eyebrow">Role overview</span><h2>About this role</h2></div><span class="language-note">${esc(job.languages?.length?job.languages.join(' · '):'Language not listed')}</span></div><p class="job-lead">${esc(job.description)}</p><div class="job-description"><section><h3>What you’ll work on</h3><ul>${job.highlights.map((item)=>`<li>${esc(item)}</li>`).join('')}</ul></section><section><h3>Why this may fit</h3><p>${esc(job.reason)}</p></section><section><h3>Application source</h3><div class="detail-summary"><span class="source-dot"></span><span>${routeCopy}</span>${job.isLive?`<a href="${esc(job.sourceUrl)}" target="_blank" rel="noopener noreferrer">View source</a>`:''}</div></section></div></article>
+    <header class="job-detail-hero"><div class="job-detail-title"><span class="eyebrow">${job.isLive?'Apply on the employer site':job.source==='Native'?'Hireloom application':'Assisted application'}</span><h1>${esc(job.title)}</h1><div class="detail-company"><strong>${esc(job.company)}</strong><span>•</span><span>${esc(job.location)}</span><span>•</span><span>Posted ${esc(postingAge(job))}</span></div><div class="tag-row detail-tags"><span class="tag primary">${esc(job.source)}</span><span class="tag ${job.mode==='Remote'?'green':''}">${esc(job.mode)}</span><span class="tag">Experience · ${esc(job.years||'Not listed')}</span></div></div><button class="secondary-button job-save-button" data-action="save-job" data-id="${esc(job.id)}">${state.savedJobs.includes(job.id)?'♥ Saved':'♡ Save job'}</button></header>
+    <div class="job-detail-grid"><article class="card job-detail-main"><div class="job-card-heading"><div><span class="eyebrow">Role overview</span><h2>${job.isLive?'Description preview':'About this role'}</h2></div><span class="language-note">${esc(job.languages?.length?job.languages.join(' · '):'Language not listed')}</span></div><p class="job-lead">${esc(jobDescriptionPreview(job))}</p>
+    ${job.isLive&&job.url?`<p class="job-source-link"><a href="${esc(job.url)}" target="_blank" rel="noopener noreferrer">Read full employer posting</a></p>`:''}
+    <div class="job-description">
+    ${job.highlights?.length?`<section><h3>What you’ll work on</h3><ul>${job.highlights.map(item=>`<li>${esc(item)}</li>`).join('')}</ul></section>`:''}
+    <section><h3>Skills mentioned</h3>${job.skills.length?`<div class="tag-row">${job.skills.map(skill=>`<span class="tag">${esc(skill)}</span>`).join('')}</div>`:'<p>No skills were identified in the indexed posting.</p>'}</section>
+    <section><h3>Application source</h3><div class="detail-summary"><span class="source-dot"></span><span>${routeCopy}</span></div></section></div></article>
       <aside class="score-column"><div class="card score-card"><div class="score-card-head"><span>ATS readiness</span><strong>${readiness}<small>/100</small></strong></div><div class="score-meter"><span style="width:${readiness}%"></span></div><div class="breakdown"><div class="breakdown-row"><span>Contact details</span><strong>${state.profile.email&&state.profile.phone?'✓ Complete':'Check profile'}</strong></div><div class="breakdown-row"><span>Standard sections</span><strong>${state.profile.experience?.length?'✓ Present':'Add experience'}</strong></div><div class="breakdown-row"><span>Skill evidence</span><strong>${state.profile.skills.length} skills</strong></div></div></div>
-      <div class="card score-card match-card"><div class="score-card-head"><span>Match with this job</span><strong>${score}<small>/100</small></strong></div><div class="score-meter"><span style="width:${score}%"></span></div><div class="breakdown"><div class="breakdown-row"><span>Experience level</span><strong>${esc(job.years)}</strong></div><div class="breakdown-row"><span>Work mode</span><strong>${esc(job.mode)}</strong></div><div class="breakdown-row"><span>Remote eligibility</span><strong>${esc(job.eligible.slice(0,2).join(', '))}</strong></div></div>
+      <div class="card score-card match-card"><div class="score-card-head"><span>Match with this job</span><strong>${score}<small>/100</small></strong></div><div class="score-meter"><span style="width:${score}%"></span></div><div class="breakdown"><div class="breakdown-row"><span>Experience requirement</span><strong>${esc(job.years||'Not listed')}</strong></div><div class="breakdown-row"><span>Work mode</span><strong>${esc(job.mode)}</strong></div><div class="breakdown-row"><span>Location</span><strong>${esc(job.location||'Not listed')}</strong></div></div>
         <div class="skills-block"><h4>Skills in your profile</h4><div class="tag-row">${matched.length?matched.map((skill)=>`<span class="tag green">✓ ${esc(skill)}</span>`).join(''):'<span class="tag">No direct overlap yet</span>'}</div></div>
-        <div class="skills-block"><h4>Skills to review</h4><div class="tag-row">${missing.length?missing.slice(0,4).map((skill)=>`<span class="tag gap-tag">${esc(skill)}</span>`).join(''):'<span class="tag green">No listed gaps</span>'}</div></div><div class="fit-recommendation">${fitNote}</div>
+        <div class="skills-block"><h4>Skills to review</h4><div class="tag-row">${missing.length?missing.map((skill)=>`<span class="tag gap-tag">${esc(skill)}</span>`).join(''):'<span class="tag green">No listed gaps</span>'}</div></div><div class="fit-recommendation">${fitNote}</div>
       </div>
       <div class="detail-cta">${approved?`<div class="approved-cv-label">✓ Tailored CV v${approved.version} approved</div><button class="secondary-button" data-action="download-cv" data-id="${esc(job.id)}">Download approved CV</button>`:''}${job.isLive?`<button class="secondary-button" data-action="tailor-job" data-id="${esc(job.id)}">${approved?'Update tailored CV':'Tailor CV for this role'}</button><a class="primary-button" data-action="track-listing" data-id="${esc(job.id)}" href="${esc(job.url)}" target="_blank" rel="noopener noreferrer">Track and apply</a>`:approved?`<button class="primary-button" data-action="apply-job" data-id="${esc(job.id)}">${job.source==='Native'?'Apply on Hireloom':'Record assisted apply'}</button>`:`<button class="primary-button" data-action="tailor-job" data-id="${esc(job.id)}">Tailor CV for this role</button><button class="secondary-button" data-action="apply-job" data-id="${esc(job.id)}">Apply with current CV</button>`}${history?`<button class="text-button" data-action="go-tracker">View in application tracker</button>`:''}<p class="route-note">${job.isLive?'The employer completes the application. Update the status in Hireloom after submitting.':'You review every CV and application. Auto-apply is off.'}</p></div></aside></div>`;
 }
@@ -809,11 +824,14 @@ async function enterCloudWorkspace(user,fallbackName='') {
   try { state=remote?normalizeState(remote):newWorkspace(user.name||fallbackName,user.email); }
   catch { authMode='login'; authMessage='Your saved workspace could not be read.'; render(); return; }
   const name=user.name||fallbackName;
-  if(!remote&&name)state.profile.name=name;
+  const needsName=!!name&&!String(state.profile.name||'').trim();
+  const needsInitialSave=!remote||needsName||state.profile.email!==user.email;
+  if(needsName)state.profile.name=name;
   workspaceUserId=user.id;workspaceKey=null;
   state.profile.email=user.email;state.loggedOut=false;state.view='chat';
   resetSearchCaches();
   session=true;authMode='login';authMessage='';authData.lastEmail=user.email;saveAuth();
+  if(needsInitialSave)persist();
   if(getChat()?.hasSearch)startChatSearches(getChat());else render();
   toast('Welcome to your Hireloom workspace.','success');
 }
@@ -891,10 +909,13 @@ async function cloudLogout() {
   closeModal();render();
 }
 async function cloudDeleteAccount(email) {
-  await cloud.deleteAccount(workspaceUserId,email);
+  const {cleanupPending}=await cloud.deleteAccount(workspaceUserId,email);
   cancelVoiceSearch(false);session=false;workspaceUserId=null;
   try{localStorage.removeItem(STORAGE_KEY);}catch{}
-  state=initialState();authData={...authData,lastEmail:''};authDraft={name:'',email:''};saveAuth();resetSearchCaches();authMode='login';authMessage='✓ Your account and data were deleted.';
+  state=initialState();authData={...authData,lastEmail:''};authDraft={name:'',email:''};saveAuth();resetSearchCaches();authMode='login';
+  authMessage=cleanupPending
+    ? 'Your account was deleted, but the stored CV could not be removed. Contact Hireloom support for cleanup.'
+    : '✓ Your account and data were deleted.';
   closeModal();render();
 }
 
@@ -986,8 +1007,22 @@ async function downloadStoredCv() {
 function resolveFollowup(prompt, previous) {
   if (!previous) return prompt;
   const filter = prompt.trim().replace(/[?.!]+$/, '').replace(/^(?:what about|how about|show me|only|just)\s+/i, '').trim();
+  const combined = filter.match(/^(remote|hybrid|on-?site)\s+(?:ones?\s+)?((?:in|near|around)\s+.+)$/i);
+  if(combined&&queryLocationTerms(combined[2]).length) {
+    return resolveFollowup(combined[1],resolveFollowup(combined[2],previous));
+  }
   const mode = filter.match(/^(remote|hybrid|on-?site)(?:\s+(?:ones|jobs|roles|positions|only))?$/i);
   const place = filter.match(/^(in|near|around)\s+(.+)$/i);
+  const years = filter.match(/^(?:(?:i have|with|for)\s+)?(\d{1,2}(?:\s*[-–—]\s*\d{1,2})?\s*\+?\s*(?:years?|yrs?))(?:\s+(?:of\s+)?experience)?$/i);
+  const levelPattern = /\b(?:junior|senior|entry[- ]level|mid[- ]level|fresh graduates?|graduates?|internship|freshers?|no (?:prior )?experience)\b/gi;
+  const level = filter.match(/^(?:for\s+)?(junior|senior|entry[- ]level|mid[- ]level|fresh graduates?|graduates?|internship|freshers?|no (?:prior )?experience)(?:\s+(?:ones|jobs|roles|positions|only))?$/i);
+  const fresher = level && /^(?:fresh|no )/i.test(level[1]);
+  if (years || level) {
+    let base = previous;
+    if (years || fresher) base = base.replace(/\b(?:(?:i have|with|for)\s+)?\d{1,2}(?:\s*[-–—]\s*\d{1,2})?\s*\+?\s*(?:years?|yrs?)\b(?:\s+(?:of\s+)?experience)?/gi, ' ');
+    if (level) base = base.replace(levelPattern, ' ');
+    return (base + ' ' + (years ? 'with ' + years[1] + ' experience' : level[1])).replace(/\s+/g, ' ').trim();
+  }
   if (mode) {
     const base = previous.replace(/\b(?:remote|hybrid|on-?site|in-office)\b/gi, ' ').trim();
     return (base + ' ' + mode[1]).replace(/\s+/g, ' ').trim();

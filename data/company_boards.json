@@ -1,7 +1,15 @@
 {
   "version": 1,
-  "source_count": 300,
+  "source_count": 301,
   "companies": [
+    {
+      "company": "Mozilla",
+      "provider": "career-html",
+      "slug": "mozilla",
+      "careers_url": "https://www.mozilla.org/en-US/careers/listings/",
+      "job_path": "/en-US/careers/position/gh/[0-9]+/",
+      "html_adapter": "mozilla"
+    },
     {
       "company": "Tekion",
       "provider": "ashby",

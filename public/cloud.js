@@ -244,24 +244,34 @@
     if (!email || user.email.trim().toLowerCase() !== email) throw new Error('Enter the email address you use to sign in.');
     const { data: files, error: listError } = await sb.storage.from(BUCKET).list(user.id);
     if (listError) throw listError;
-    if (files && files.length) {
-      const { error } = await sb.storage.from(BUCKET).remove(files.map((file) => `${user.id}/${file.name}`));
-      if (error) throw error;
-    }
     const currentUser = await cloud.getUser();
     if (currentUser?.id !== owner) throw new Error('Account changed. Please sign in again.');
     const { error } = await sb.rpc('delete_my_account');
     if (error) throw error;
+    // The signed access token still authorizes this account's private folder
+    // until it expires. Clean up after Auth deletion succeeds.
+    let cleanupPending = false;
+    if (files?.length) {
+      const paths = files.map(file => `${owner}/${file.name}`);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const result = await sb.storage.from(BUCKET).remove(paths);
+          cleanupPending = !!result.error;
+        } catch { cleanupPending = true; }
+        if (!cleanupPending) break;
+      }
+    }
     pending = null;
     try {
       localStorage.removeItem(pendingKey(user.id));
       localStorage.removeItem(pendingKey(user.id)+':conflict');
     } catch { /* storage unavailable */ }
     await cloud.signOut().catch(() => {});
+    return {cleanupPending};
   }
   cloud.deleteAccount = async (owner, email) => {
     closing=true;
-    try { await removeAccount(owner, email); } finally { closing=false; }
+    try { return await removeAccount(owner, email); } finally { closing=false; }
   };
   cloud.conflictCopy = owner => localStorage.getItem(pendingKey(owner)+':conflict');
 

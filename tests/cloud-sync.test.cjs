@@ -119,6 +119,20 @@ test('account deletion rejects a different account or email before touching stor
   await assert.rejects(cloud.deleteAccount('first','other@example.com'), /email address/);
 });
 
+test('a failed Auth deletion leaves the stored CV untouched', async () => {
+  let removals=0;
+  const sb={
+    auth:{onAuthStateChange(){},getSession:async()=>({data:{session:{user:{id:'first',email:'person@example.com'}}}})},
+    storage:{from:()=>({list:async()=>({data:[{name:'cv.pdf'}]}),remove:async()=>{removals++;return {};}})},
+    rpc:async()=>({error:new Error('Auth deletion failed')}),
+  };
+  const window={HIRELOOM_SUPABASE:{url:'test',anonKey:'test'},supabase:{createClient:()=>sb},addEventListener(){}};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../public/cloud.js'),'utf8'),
+    {window,document:{addEventListener(){}},setTimeout,clearTimeout});
+  await assert.rejects(window.HireloomCloud.deleteAccount('first','person@example.com'),/Auth deletion failed/);
+  assert.equal(removals,0);
+});
+
 test('failed writes stay available for retry and cannot go to another user', async () => {
   let fail=true;
   const writes=[];
