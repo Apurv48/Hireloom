@@ -10,6 +10,24 @@ from scripts import refresh_job_index
 
 
 class CareerSearchTests(unittest.TestCase):
+    def test_job_evidence_is_extracted_before_preview_truncation(self):
+        source = {"provider": "lever", "slug": "acme", "company": "Acme"}
+        job = server.normalize_public_job(source, {
+            "id": "1", "text": "Data Analyst", "hostedUrl": "https://jobs.example.com/1",
+            "descriptionPlain": "intro " * 250,
+            "lists": [
+                {"text": "Required qualifications", "content": "<li>2 years of experience with SQL.</li><li>Bachelor’s degree in Statistics.</li>"},
+                {"text": "Preferred skills", "content": "<li>Python.</li>"},
+                {"text": "Responsibilities", "content": "<li>Build dashboards.</li>"},
+            ],
+            "additionalPlain": "Work authorization is required.",
+        })
+        evidence = job["jdRequirements"]
+        self.assertNotIn("SQL", job["description"])
+        self.assertIn("2 years of experience with SQL.", evidence["required"])
+        self.assertIn("Python.", evidence["preferred"])
+        self.assertIn("Build dashboards.", evidence["responsibilities"])
+        self.assertIn("Work authorization is required.", evidence["application_constraints"])
     def setUp(self):
         server._search_live_jobs_cached.cache_clear()
 

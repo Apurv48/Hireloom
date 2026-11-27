@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unicodedata
@@ -88,13 +89,13 @@ class JobDescriptionText(HTMLParser):
         if tag in {"script", "style", "svg", "noscript"}:
             self.skip_depth += 1
         elif not self.skip_depth and tag in {"p", "br", "li", "div", "h1", "h2", "h3", "h4"}:
-            self.parts.append(" ")
+            self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if self.skip_depth and tag in {"script", "style", "svg", "noscript"}:
             self.skip_depth -= 1
         elif not self.skip_depth and tag in {"p", "br", "li", "div", "h1", "h2", "h3", "h4"}:
-            self.parts.append(" ")
+            self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
         if not self.skip_depth:
@@ -109,6 +110,60 @@ def plain_text(value: object, limit: int | None = 2400) -> str:
     except Exception:
         text = re.sub(r"<[^>]*>", " ", str(value or ""))
     return re.sub(r"\s+", " ", text).strip()[:limit]
+
+
+JD_HEADINGS = {
+    "required": r"(?:minimum|required|essential) (?:qualifications|requirements|skills)|requirements|must[ -]haves?|what you(?:'ll| will) need",
+    "preferred": r"preferred(?: qualifications| requirements| skills)?|nice[ -]to[ -]haves?|desirable (?:skills|qualifications)|bonus points",
+    "responsibilities": r"(?:key |job |core )?responsibilities|what you(?:'ll| will) do|duties",
+}
+JD_CONSTRAINT = re.compile(r"\b(?:visa sponsorship|work authori[sz]ation|right to work|eligible to work|security clearance|no sponsorship)\b", re.I)
+JD_QUALIFICATION = re.compile(r"\b(?:degrees?|bachelor'?s?|master'?s?|ph\.?d|diplomas?|licen[cs]es?|certifications?|proficien(?:cy|t)|fluen(?:t|cy))\b", re.I)
+
+
+def extract_job_requirements(sections: list[object]) -> dict[str, list[str]]:
+    """Keep bounded employer excerpts. Unclassified text stays unclassified."""
+    evidence: dict[str, list[str]] = {}
+
+    def add(key: str, text: str) -> None:
+        rows = evidence.setdefault(key, [])
+        excerpt = textwrap.shorten(text, width=280, placeholder="…")
+        if excerpt and excerpt not in rows and len(rows) < 8:
+            rows.append(excerpt)
+
+    for raw in sections:
+        if not isinstance(raw, str):
+            continue
+        parser = JobDescriptionText()
+        parser.feed(raw)
+        group = ""
+        for line in re.split(r"\n+|(?<=[.!?])\s+", " ".join(parser.parts)):
+            line = re.sub(r"\s+", " ", line).strip(" •–-")
+            if not line:
+                continue
+            heading, separator, rest = line.partition(":")
+            name = heading.lower().replace("’", "'").strip()
+            category = next((key for key, pattern in JD_HEADINGS.items() if re.fullmatch(pattern, name)), "")
+            if category:
+                group = category
+                line = rest.strip() if separator else ""
+                if not line:
+                    continue
+            elif (separator and not rest.strip()) or re.fullmatch(r"about us|benefits|compensation|what we offer|about the role", name):
+                group = ""
+                continue
+            preferred = bool(re.search(r"\b(?:preferred|nice to have|a plus|optional)\b", line, re.I))
+            required = bool(re.search(r"\b(?:required|must have|must hold|must be|minimum)\b", line, re.I))
+            category = "preferred" if preferred else "required" if required else group
+            if category:
+                add(category, line)
+            if REQUIRED_EXPERIENCE.search(line) or FRESHER_SEARCH.search(line):
+                add("experience", line)
+            if JD_QUALIFICATION.search(line):
+                add("qualifications", line)
+            if JD_CONSTRAINT.search(line):
+                add("application_constraints", line)
+    return evidence
 
 
 def safe_https_url(value: object) -> str:
@@ -234,7 +289,8 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         place = record.get("location") or {}
         location = plain_text(place.get("name"), 500) if isinstance(place, dict) else ""
         url = safe_https_url(record.get("absolute_url"))
-        description = plain_text(unescape(record.get("content") or ""), None)
+        sections = [unescape(record.get("content") or "")]
+        description = plain_text(sections[0], None)
         published_value = record.get("first_published") or record.get("updated_at")
         remote = bool(re.search(r"\bremote\b|work from home", f"{title} {location}", re.I))
     elif provider == "ashby":
@@ -244,7 +300,8 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         extra_locations = [plain_text(item.get("location") if isinstance(item, dict) else item, 160) for item in secondary if item]
         location = ", ".join(dict.fromkeys(value for value in [primary, *extra_locations] if value))
         url = safe_https_url(record.get("jobUrl") or record.get("applyUrl"))
-        description = plain_text(record.get("descriptionPlain") or record.get("descriptionHtml"), None)
+        sections = [record.get("descriptionHtml") or record.get("descriptionPlain")]
+        description = plain_text(record.get("descriptionPlain") or sections[0], None)
         published_value = record.get("publishedAt")
         remote = bool(record.get("isRemote")) or bool(re.search(r"\bremote\b|work from home", f"{title} {location}", re.I))
     elif provider == "lever":
@@ -257,10 +314,11 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         location_values.extend(plain_text(value, 160) for value in all_locations if value)
         location = ", ".join(dict.fromkeys(value for value in location_values if value))
         url = safe_https_url(record.get("hostedUrl") or record.get("applyUrl"))
-        sections = [record.get("descriptionPlain") or record.get("description")]
+        sections = [record.get("description") or record.get("descriptionPlain")]
         for section in record.get("lists") or []:
             if isinstance(section, dict):
-                sections.extend([section.get("text"), section.get("content")])
+                sections.append("\n".join(part for part in (section.get("text"), section.get("content"))
+                                          if isinstance(part, str)))
         sections.append(record.get("additionalPlain") or record.get("additional"))
         description = " ".join(plain_text(part, None) for part in sections if part)
         published_value = record.get("createdAt")
@@ -274,6 +332,7 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         return None
     mode = provider_mode or job_mode(remote, f"{title} {location}")
     posted, published = posted_label(published_value)
+    requirements = extract_job_requirements(sections)
     return {
         "id": f"{provider}-{slug}-{record_id}", "title": title, "company": company,
         "location": location or "Location not listed", "mode": mode,
@@ -281,6 +340,7 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         "source": company, "sourceUrl": careers_url, "route": "Company career page", "url": url,
         "posted": posted, "published": published, "years": experience_label(description), "match": 65,
         "skills": known_skills(f"{title} {description}"),
+        **({"jdRequirements": requirements} if requirements else {}),
         "description": description[:1200] or "See the employer’s posting for details.",
         "highlights": [], "reason": "Review the requirements and work location on the company career page.",
         "isLive": True,

@@ -493,6 +493,17 @@ function renderJobDetail() {
   const matched = matchingSkills(job), missing = missingSkills(job), score = matchScore(job), readiness = atsScore();
   const approved = state.cvVersions.find((version) => version.jobId === job.id && version.approved);
   const history = state.applications.find((app) => app.jobId === job.id);
+  const requirementLabels = {
+    required:'Required qualifications and skills', preferred:'Preferred qualifications and skills',
+    experience:'Experience mentioned', qualifications:'Education, credentials and proficiency',
+    responsibilities:'Responsibilities', application_constraints:'Application constraints',
+  };
+  const requirementSections=Object.entries(requirementLabels).map(([key,label])=>{
+    const excerpts=job.jdRequirements?.[key];
+    return Array.isArray(excerpts)&&excerpts.length
+      ? `<section><h3>${label}</h3><ul>${excerpts.map(excerpt=>`<li>${esc(excerpt)}</li>`).join('')}</ul></section>`
+      : '';
+  }).join('');
   const fitNote=!job.skills.length?'Hireloom has no skill tags for this listing. Check the employer posting for requirements.':missing.length?`Review ${missing.slice(0,2).map(esc).join(' and ')} against your real experience before tailoring. Hireloom will not add unconfirmed skills.`:`Your confirmed profile covers every skill listed in this role.`;
   const routeCopy=job.isLive?`Found on ${esc(job.source)}. Track and apply opens the employer’s original listing and records the handoff in your pipeline.`:job.source==='Native'?'This prototype records the application in your tracker. No application is sent to a real employer.':'This assisted route records a reviewed handoff in your tracker.';
   return `<div class="job-breadcrumb"><button class="back-link" data-action="back-jobs">Back to job discovery</button><span>•</span><span>${esc(job.source)} listing</span>${history?`<span class="pipeline-status">${esc(history.status||'Tracked')}</span>`:''}</div>
@@ -503,6 +514,7 @@ function renderJobDetail() {
     <div class="job-description">
     ${job.highlights?.length?`<section><h3>What you’ll work on</h3><ul>${job.highlights.map(item=>`<li>${esc(item)}</li>`).join('')}</ul></section>`:''}
     <section><h3>Skills mentioned</h3>${job.skills.length?`<div class="tag-row">${job.skills.map(skill=>`<span class="tag">${esc(skill)}</span>`).join('')}</div>`:'<p>No skills were identified in the indexed posting.</p>'}</section>
+    ${requirementSections}
     <section><h3>Application source</h3><div class="detail-summary"><span class="source-dot"></span><span>${routeCopy}</span></div></section></div></article>
       <aside class="score-column"><div class="card score-card"><div class="score-card-head"><span>ATS readiness</span><strong>${readiness}<small>/100</small></strong></div><div class="score-meter"><span style="width:${readiness}%"></span></div><div class="breakdown"><div class="breakdown-row"><span>Contact details</span><strong>${state.profile.email&&state.profile.phone?'✓ Complete':'Check profile'}</strong></div><div class="breakdown-row"><span>Standard sections</span><strong>${state.profile.experience?.length?'✓ Present':'Add experience'}</strong></div><div class="breakdown-row"><span>Skill evidence</span><strong>${state.profile.skills.length} skills</strong></div></div></div>
       <div class="card score-card match-card"><div class="score-card-head"><span>Match with this job</span><strong>${score}<small>/100</small></strong></div><div class="score-meter"><span style="width:${score}%"></span></div><div class="breakdown"><div class="breakdown-row"><span>Experience requirement</span><strong>${esc(job.years||'Not listed')}</strong></div><div class="breakdown-row"><span>Work mode</span><strong>${esc(job.mode)}</strong></div><div class="breakdown-row"><span>Location</span><strong>${esc(job.location||'Not listed')}</strong></div></div>
