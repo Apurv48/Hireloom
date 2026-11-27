@@ -992,6 +992,17 @@ function resolveFollowup(prompt, previous) {
     const base = previous.replace(/\b(?:remote|hybrid|on-?site|in-office)\b/gi, ' ').trim();
     return (base + ' ' + mode[1]).replace(/\s+/g, ' ').trim();
   }
+  // A new experience level or seniority replaces the one in the earlier prompt instead of being added to it.
+  const years = filter.match(/^(?:with\s+)?(\d{1,2}(?:\s*(?:-|to)\s*\d{1,2})?\s*\+?)\s*(?:years?|yrs?)(?:\s+(?:of\s+)?experience)?$/i);
+  const level = filter.match(/^(junior|senior|entry[- ]level|mid[- ]level)(?:\s+(?:level|roles?|jobs?|ones|only))?$/i);
+  if (years || level) {
+    // Only the value being replaced is removed: a new level keeps the years, and new years keep the level.
+    const base = (years
+      ? previous.replace(/\b(?:with\s+)?\d{1,2}\s*(?:\+|plus)?(?:\s*(?:-|to)\s*\d{1,2})?\s*\+?\s*(?:years?|yrs?)(?:\s+(?:of\s+)?experience)?\b/gi, ' ')
+      : previous.replace(/\b(?:junior|senior|entry[- ]level|mid[- ]level)\b/gi, ' ')).trim();
+    const added = years ? `${years[1].replace(/\s+/g, '')} years experience` : level[1].toLowerCase();
+    return (base + ' ' + added).replace(/\s+/g, ' ').trim();
+  }
   if (place && queryLocationTerms(filter).length) {
     let base = previous;
     for (const old of queryLocationTerms(previous).sort((a,b)=>b.length-a.length)) {

@@ -534,6 +534,80 @@ def resolve_search(query: str, location_hint: str = "") -> tuple[list[str], list
     return locations, [token for token in job_search_tokens(query) if token not in location_tokens]
 
 
+ROLE_FAMILIES = {
+    "engineer": {"engineer", "engineers", "developer", "developers", "programmer", "sde", "swe"},
+    "developer": {"engineer", "engineers", "developer", "developers", "programmer", "sde", "swe"},
+    "analyst": {"analyst", "analysts"},
+    "scientist": {"scientist", "scientists"},
+    "manager": {"manager", "managers", "management"},
+    "designer": {"designer", "designers"},
+    "architect": {"architect", "architects"},
+    "consultant": {"consultant", "consultants"},
+    "specialist": {"specialist", "specialists"},
+    "recruiter": {"recruiter", "recruiters"},
+    "administrator": {"administrator", "administrators", "admin"},
+    "writer": {"writer", "writers"},
+    "researcher": {"researcher", "researchers"},
+    "director": {"director", "directors"},
+}
+SENIORITY_WORDS = {"junior", "jr", "senior", "sr", "lead", "staff", "principal", "entry-level", "graduate", "intern", "mid-level", "intermediate"}
+JUNIOR_QUERY = re.compile(r"\b(?:junior|jr|entry[- ]level|graduate|intern)\b", re.I)
+SENIOR_QUERY = re.compile(r"\b(?:senior|sr|lead|staff|principal)\b", re.I)
+JUNIOR_TITLE = re.compile(r"\b(?:junior|jr|intern|internship|entry|graduate|trainee|fresher)\b", re.I)
+SENIOR_TITLE = re.compile(r"\b(?:senior|sr|lead|staff|principal|head|director|vp|chief)\b", re.I)
+# Years of experience a job title usually implies when the posting states no number.
+TITLE_YEARS = {"senior": 5, "sr": 5, "lead": 6, "staff": 7, "principal": 8, "head": 10, "director": 10, "vp": 12, "chief": 12}
+# "2+ years", "3-5 years", "2 to 4 yrs" in a search prompt. The upper figure of a range is the candidate's level.
+QUERY_YEARS = re.compile(r"(?<![\w.])(\d{1,2})\s*(?:\+|plus)?(?:\s*(?:-|\u2013|\u2014|to)\s*(\d{1,2}))?\s*\+?\s*(?:years?|yrs?)\b", re.I)
+# Experience a posting asks for, as written: "3+ years of experience", "5-7 years experience",
+# "minimum of 3 years", "experience: 4+ years". Loose phrases such as "25 years in business" are not matched.
+JOB_YEARS = re.compile(
+    r"(?<![\w.])(\d{1,2})\s*(?:\+|plus)?(?:\s*(?:-|\u2013|\u2014|to)\s*(\d{1,2}))?\s*\+?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w/&-]+\s+){0,4}?(?:experience|exp\b)"
+    r"|(?:minimum|min\.?|at\s+least|requires?|required)\s+(?:of\s+)?(\d{1,2})\s*(?:\+|plus)?\s*(?:years?|yrs?)"
+    r"|experience[^.\n]{0,25}?(\d{1,2})\s*(?:\+|plus)?\s*(?:years?|yrs?)",
+    re.I,
+)
+LOCATION_WORDS = {word for aliases in LOCATION_ALIASES.values() for alias in aliases for word in normalize_location(alias).split()}
+
+
+def role_intent(query: str) -> dict[str, object]:
+    """The role a prompt asks for: the family its head noun belongs to (engineer, analyst, ...) and the
+    words just before the head that name the specialty, e.g. "python" in "python developer"."""
+    tokens = job_search_tokens(query)
+    heads = [index for index, token in enumerate(tokens) if token in ROLE_FAMILIES]
+    if not heads:
+        return {"family": set(), "modifiers": []}
+    head = heads[-1]
+    modifiers = [
+        token for token in tokens[max(0, head - 3):head]
+        if token not in LOCATION_WORDS and token not in SENIORITY_WORDS and token not in ROLE_FAMILIES
+    ]
+    return {"family": ROLE_FAMILIES[tokens[head]], "modifiers": modifiers}
+
+
+def query_years(query: str) -> int | None:
+    """Years of experience the prompt asks for. "2+ years" and "2 years" mean 2; a range uses its upper figure."""
+    match = QUERY_YEARS.search(query)
+    if not match:
+        return None
+    years = int(match.group(2) or match.group(1))
+    return years if years <= 40 else None
+
+
+def job_years_required(text: str) -> int | None:
+    """The lowest experience requirement a posting states, or None when it states none."""
+    values = []
+    for match in JOB_YEARS.finditer(text):
+        numbers = [int(value) for value in match.groups() if value]
+        if numbers and min(numbers) <= 30:
+            values.append(min(numbers))
+    return min(values) if values else None
+
+
+def title_years(title_words: set[str]) -> int:
+    return max((TITLE_YEARS[word] for word in title_words if word in TITLE_YEARS), default=0)
+
+
 def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: str = "", work_modes: list[str] | None = None, profile_skills: tuple[str, ...] = ()) -> list[dict[str, object]]:
     lowered = query.lower()
     locations, tokens = resolve_search(query, location_hint)
@@ -543,6 +617,11 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
     matchers = [token_matchers(token) for token in tokens]
     preferred_skills = set(profile_skills)
     seniority = re.findall(r"\b(?:junior|senior)\b", lowered)
+    role = role_intent(query)
+    modifier_matchers = [token_matchers(word) for word in role["modifiers"]]
+    years = query_years(query)
+    junior_wanted = JUNIOR_QUERY.search(query) is not None
+    senior_wanted = SENIOR_QUERY.search(query) is not None
     ranked = []
     for job in jobs:
         if mode and job.get("mode") != mode:
@@ -553,8 +632,19 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
         if not location_matches(job, locations):
             continue
         title = str(job.get("title", "")).lower()
+        title_words = set(re.findall(r"[a-z]+", title))
+        # The role word must be in the title, so "data engineer" does not return data analyst roles.
+        if role["family"] and not title_words & role["family"]:
+            continue
+        if junior_wanted and SENIOR_TITLE.search(title):
+            continue
+        if senior_wanted and JUNIOR_TITLE.search(title):
+            continue
         skills = " ".join(str(skill) for skill in (job.get("skills") or [])).lower()
         other = " ".join(str(job.get(key, "")) for key in ("company", "location", "description")).lower()
+        # A role modifier ("python" in "python developer") found only in the description makes a near match:
+        # ranked lower, and shown only when strict matches are few.
+        loose = bool(modifier_matchers) and not all(fields_hit(f"{title} {skills}", found) for found in modifier_matchers)
         # Weights: title 3, skills 2, other text 1.
         score = sum(3 if fields_hit(title, alts) else 2 if fields_hit(skills, alts) else 1 if fields_hit(other, alts) else 0 for alts in matchers)
         if tokens and score == 0:
@@ -562,8 +652,20 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
         for level in seniority:
             if re.search(r"\b" + level + r"\b", title):
                 score += 3
-        if "data analyst" in lowered and "analyst" in title:
-            score += 4
+        if modifier_matchers and all(fields_hit(title, found) for found in modifier_matchers):
+            score += 6
+        if loose:
+            score -= 10
+        if years is not None:
+            required = job_years_required(f"{title}. {job.get('description') or ''}")
+            if required is not None:
+                # Asking for more than the candidate's years (plus one year of stretch) is a mismatch.
+                if required > years + 1:
+                    continue
+                score += -4 if required == years + 1 else 2
+            elif title_years(title_words) - years >= 3:
+                # No stated requirement: a title such as "Principal" or "Senior" implies one.
+                continue
         if "ml" in tokens and re.search(r"\b(?:machine learning|ml)\b", f"{title} {skills}"):
             score += 5
         try:
@@ -573,9 +675,11 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
         in_india = int(prefer_india and ("India" in job.get("eligible", []) or "india" in normalize_location(job.get("location", "")).split()))
         required = [str(skill).strip().lower() for skill in job.get("skills", [])]
         fit = sum(skill in preferred_skills for skill in required) / len(required) if required else 0.5
-        ranked.append((score, fit if preferred_skills else 0, in_india, freshness, job))
+        ranked.append((score, fit if preferred_skills else 0, in_india, freshness, loose, job))
     ranked.sort(key=lambda item: item[:4], reverse=True)
-    return [job for *_, job in ranked[:60]]
+    strict = [item for item in ranked if not item[4]]
+    chosen = strict if len(strict) >= 10 else ranked
+    return [item[5] for item in chosen[:60]]
 
 
 def search_live_jobs(query: str, location_hint: str = "", work_modes: list[str] | None = None, profile_skills: tuple[str, ...] = ()) -> dict[str, object]:
