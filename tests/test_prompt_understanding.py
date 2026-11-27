@@ -104,5 +104,27 @@ class PromptFilterTests(unittest.TestCase):
         self.assertEqual(self.search(strict + [near], "python developer"), ["Acme", "Near"])
 
 
+class JobDetailTests(unittest.TestCase):
+    def test_highlights_come_from_work_sentences_not_promotion(self):
+        text = ("We are a fast-growing company with great culture. "
+                "You will design and run batch data pipelines for analytics teams. "
+                "Our values guide everything we do. "
+                "You will own data quality checks across the warehouse.")
+        self.assertEqual(server.posting_highlights(text), [
+            "You will design and run batch data pipelines for analytics teams.",
+            "You will own data quality checks across the warehouse.",
+        ])
+
+    def test_no_work_sentences_gives_no_highlights(self):
+        self.assertEqual(server.posting_highlights("A friendly team in Berlin."), [])
+
+    def test_fit_reason_uses_the_checks_that_ran(self):
+        posting = job("Acme", "Data Engineer", "Requires 3+ years of experience.")
+        reason = server.fit_reason(posting, "data engineer 2 years experience")
+        self.assertIn("The title matches your role search.", reason)
+        self.assertIn("The posting asks for 3+ years; your search says 2.", reason)
+        self.assertIn("Remote role.", reason)
+
+
 if __name__ == "__main__":
     unittest.main()

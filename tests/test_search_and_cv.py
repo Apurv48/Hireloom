@@ -145,7 +145,7 @@ class CareerSearchTests(unittest.TestCase):
                  "failed_sources": [{"company": "Example"}], "generated_at": "2026-11-19T00:00:00Z"}
         with patch.object(server, "load_job_index", return_value=index):
             result = server.search_live_jobs("Python in Bengaluru")
-        self.assertEqual(result["jobs"], [job])
+        self.assertEqual([(item["id"], item["title"]) for item in result["jobs"]], [("greenhouse-twilio-42", "Python Engineer")])
         self.assertEqual(result["sources"][0]["name"], "300 company career pages")
         self.assertEqual(result["sources"][0]["successful"], 298)
 

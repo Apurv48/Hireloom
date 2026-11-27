@@ -682,6 +682,47 @@ def filter_live_jobs(jobs: list[dict[str, object]], query: str, location_hint: s
     return [item[5] for item in chosen[:60]]
 
 
+RESPONSIBILITY_CUE = re.compile(r"\b(?:you will|you\u2019ll|you'll|responsible for|responsibilities|your role|key duties)\b", re.I)
+PROMO_CUE = re.compile(r"\b(?:opportunity|freedom|culture|our values|join us|we are|we\u2019re|we're|benefits|salary|equal opportunity|inspired|rewarded|connected)\b", re.I)
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z\u2022\-])")
+
+
+def posting_highlights(description: object) -> list[str]:
+    """Up to three sentences that describe the work. The index keeps descriptions as one flat paragraph,
+    so these are picked from sentences rather than from a bullet list."""
+    picked: list[str] = []
+    for sentence in SENTENCE_SPLIT.split(str(description or "")):
+        sentence = sentence.strip(" \u2022-")
+        if 25 <= len(sentence) <= 260 and RESPONSIBILITY_CUE.search(sentence) and not PROMO_CUE.search(sentence):
+            picked.append(sentence)
+        if len(picked) == 3:
+            break
+    return picked
+
+
+def fit_reason(job: dict[str, object], query: str) -> str:
+    """Why a job was shown, written from the checks the search actually made."""
+    parts: list[str] = []
+    title_words = set(re.findall(r"[a-z]+", str(job.get("title", "")).lower()))
+    if role_intent(query)["family"] and title_words & role_intent(query)["family"]:
+        parts.append("The title matches your role search.")
+    years = query_years(query)
+    if years is not None:
+        required = job_years_required(f"{job.get('title', '')}. {job.get('description') or ''}")
+        parts.append(f"The posting asks for {required}+ years; your search says {years}." if required is not None
+                     else "The posting does not state a years requirement.")
+    if job.get("mode") in WORK_MODES:
+        parts.append(f"{job.get('mode')} role.")
+    eligible = [str(item) for item in job.get("eligible", []) if str(item).strip()][:2]
+    if eligible:
+        parts.append(f"Open to {', '.join(eligible)}.")
+    return " ".join(parts) or "Review the requirements and work location on the company career page."
+
+
+def enrich_results(jobs: list[dict[str, object]], query: str) -> list[dict[str, object]]:
+    return [{**job, "highlights": job.get("highlights") or posting_highlights(job.get("description")), "reason": fit_reason(job, query)} for job in jobs]
+
+
 def search_live_jobs(query: str, location_hint: str = "", work_modes: list[str] | None = None, profile_skills: tuple[str, ...] = ()) -> dict[str, object]:
     index = load_job_index()
     generated = str(index.get("generated_at", ""))
@@ -709,7 +750,7 @@ def _search_live_jobs_cached(query: str, location_hint: str, work_modes: tuple[s
         "error": f"{len(failed)} sources were unavailable during the last refresh." if failed else "",
         "successful": successful,
     }
-    return {"jobs": filter_live_jobs(jobs, query, location_hint, list(work_modes), profile_skills), "sources": [source]}
+    return {"jobs": enrich_results(filter_live_jobs(jobs, query, location_hint, list(work_modes), profile_skills), query), "sources": [source]}
 
 
 def extract_document(filename: str, payload: bytes) -> tuple[str, int | None]:
