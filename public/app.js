@@ -321,6 +321,27 @@ function currentRouteKey() {
   if(state.view==='settings')return `settings:${state.settingsTab}`;
   return state.view;
 }
+let historySession=null;
+let restoringRoute=false;
+function syncBrowserHistory() {
+  const history=window.history;
+  if(!history)return;
+  const signedIn=session&&state.view!=='login';
+  const startingSession=signedIn&&!historySession;
+  if(startingSession)historySession=crypto.randomUUID();
+  if(!signedIn)historySession=null;
+  const route={
+    key:currentRouteKey(), session:historySession, view:state.view,
+    activeChatId:state.activeChatId, selectedJobId:state.selectedJobId,
+    tailoringJobId:state.tailoringJobId, profileTab:state.profileTab, settingsTab:state.settingsTab,
+  };
+  if(history.state?.hireloom?.key===route.key&&history.state.hireloom.session===route.session)return;
+  if(restoringRoute||startingSession||!signedIn||!history.state?.hireloom) {
+    history.replaceState({hireloom:route},'');
+  }else{
+    history.pushState({hireloom:route},'');
+  }
+}
 function render() {
   const route=currentRouteKey();
   const routeChanged=route!==lastRenderedRoute;
@@ -350,6 +371,7 @@ function render() {
   }
   const next=$('#search-query');
   if(text && next){next.value=text;if(focused){next.focus();next.setSelectionRange(...cursor);}}
+  syncBrowserHistory();
   if(routeChanged)requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'auto'}));
 }
 
@@ -1416,6 +1438,20 @@ document.addEventListener('click',(event)=>{
   if(!event.target.closest('#account-menu')&&!event.target.closest('#avatar-menu-button'))$('#account-menu').classList.add('hidden');
 });
 document.addEventListener('keydown',(event)=>{if(event.key==='Escape'){pendingDeleteChatId=null;closeModal();$('#account-menu').classList.add('hidden');state.sidebarOpen=false;updateShell();}});
+
+window.addEventListener?.('popstate',(event)=>{
+  const route=event.state?.hireloom;
+  if(!session||!historySession||route?.session!==historySession)return;
+  closeModal();
+  cancelVoiceSearch(false);
+  state.view=route.view;
+  state.sidebarOpen=false;
+  for(const key of ['activeChatId','selectedJobId','tailoringJobId','profileTab','settingsTab']){
+    if(route[key]!==undefined)state[key]=route[key];
+  }
+  restoringRoute=true;
+  try{render();}finally{restoringRoute=false;}
+});
 
 render();
 if(cloud.enabled){
