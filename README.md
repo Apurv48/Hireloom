@@ -61,6 +61,27 @@ The `Refresh company jobs` workflow publishes the daily index as a GitHub releas
 
 An explicit location in chat takes precedence over profile locations. A profile without locations gets the default markets, including India. Listings include the employer's posting date and work mode when supplied. Hireloom uses work-mode preferences and confirmed skill tags when ranking candidates before the 60-result cap. Flexible and unlisted modes remain eligible. The employer controls vacancy availability.
 
+## How Hireloom scores a CV against a job description
+
+Open **View Job → ATS match against this JD → How this score was calculated** to see the inputs, earned points, available points and final calculation. Each job card uses the same scorer. The CV input is the candidate’s current confirmed profile, including approved data from a parsed CV and later edits. A separate **Profile completeness** indicator measures whether basic profile fields have been filled in.
+
+The indexer reads Greenhouse posting HTML, Ashby job descriptions, Lever descriptions and qualification lists, and supported career-page HTML or JSON-LD. It extracts criteria before shortening the display preview. The employer link and grouped excerpts are available on View Job. Hireloom retains up to eight short excerpts per group for display and scans the full available sections for recognized scoring criteria. Source coverage depends on the information the employer publishes and the English phrases and skill vocabulary recognized by the indexer.
+
+| CV evidence check | Available points | Calculation |
+| --- | ---: | --- |
+| Required skills | 40 | Fraction of distinct recognized required skills found in profile skills, role titles, work details, summary or achievements. Matches use whole terms and selected aliases. |
+| Role title | 20 | Best fraction of meaningful employer title terms present in a single documented work or internship title. A target-role preference supplies no evidence. For entry roles with no previous title, this check is omitted. |
+| Relevant experience | 25 | Documented relevant months divided by requested months, capped at one. For a skill-specific minimum, each counted role must mention the named skills. Otherwise at least half the role-title terms must match. Overlapping dates count once. Explicit month ranges include the ending month, year-only dates use January boundaries, and ongoing roles use the current UTC month. Unreadable dates earn no tenure credit. An explicit zero-year minimum is satisfied. |
+| Recognized qualifications | 15 | Fraction of named credential, degree and language checks supported by the corresponding certification, education and language fields. A specified degree field must appear in the same education entry. These are text checks on the candidate’s claims. |
+| Responsibility wording | 10 | Fraction of retained duty excerpts with matching wording in one work detail, achievement or summary. Each match needs at least two distinct terms and half the meaningful terms of that duty. Equivalent wording can require manual review. |
+| Preferred skills | Up to 5 bonus points | Fraction of distinct preferred skills evidenced in the CV, multiplied by five. A skill already counted as required earns no second credit. |
+
+**Formula.** Divide earned base points by available base points, multiply by 100, add the optional bonus, round to the nearest integer and cap at 100. Only applicable base categories enter the denominator. A stated criterion with missing CV evidence receives zero credit. An empty CV or a posting with no assessable base criteria shows a dash. Older listings can have fewer fields. When classification is unavailable, a legacy skill-tag list can supply a 15-point mentioned-skill check.
+
+**Worked example.** A Data Analyst posting requires SQL and Python, two years of experience and three recognized qualifications. A candidate with the matching title, SQL, twelve qualifying months and two of the qualifications earns 20 + 20 + 12.5 + 10 = 62.5 out of 100 applicable points. Evidence of the sole preferred skill adds five points, giving **68/100** after rounding.
+
+Review alternative qualifications, education equivalencies, unsupported credentials and languages, clearance, visa sponsorship, work authorization, location and work mode against the employer’s original posting. Hireloom does not verify legal eligibility or credential validity. The weights are Hireloom’s own rubric. The employer’s ATS and hiring process can use different criteria.
+
 ## Included flows
 
 - Search employer listings by role, skills, location and work mode. Open **Saved** to revisit bookmarked roles, including after deleting the original chat.

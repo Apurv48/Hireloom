@@ -113,7 +113,7 @@ def plain_text(value: object, limit: int | None = 2400) -> str:
 
 
 JD_HEADINGS = {
-    "required": r"(?:minimum|required|essential) (?:qualifications|requirements|skills)|requirements|must[ -]haves?|what you(?:'ll| will) need",
+    "required": r"(?:minimum|required|essential) (?:qualifications|requirements|skills)|(?:experience )?requirements|must[ -]haves?|what you(?:'ll| will) need",
     "preferred": r"preferred(?: qualifications| requirements| skills)?|nice[ -]to[ -]haves?|desirable (?:skills|qualifications)|bonus points",
     "responsibilities": r"(?:key |job |core )?responsibilities|what you(?:'ll| will) do|duties",
 }
@@ -121,7 +121,7 @@ JD_CONSTRAINT = re.compile(r"\b(?:visa sponsorship|work authori[sz]ation|right t
 JD_QUALIFICATION = re.compile(r"\b(?:degrees?|bachelor'?s?|master'?s?|ph\.?d|diplomas?|licen[cs]es?|certifications?|proficien(?:cy|t)|fluen(?:t|cy))\b", re.I)
 
 
-def extract_job_requirements(sections: list[object]) -> dict[str, list[str]]:
+def extract_job_requirements(sections: list[object], signals: dict | None = None) -> dict[str, list[str]]:
     """Keep bounded employer excerpts. Unclassified text stays unclassified."""
     evidence: dict[str, list[str]] = {}
 
@@ -137,7 +137,7 @@ def extract_job_requirements(sections: list[object]) -> dict[str, list[str]]:
         parser = JobDescriptionText()
         parser.feed(raw)
         group = ""
-        for line in re.split(r"\n+|(?<=[.!?])\s+", " ".join(parser.parts)):
+        for line in re.split(r"\n+|;\s*|(?<=[.!?])\s+|,\s*(?=(?:but\s+)?(?:preferably|preferred|ideally|nice to have)\b)", " ".join(parser.parts), flags=re.I):
             line = re.sub(r"\s+", " ", line).strip(" •–-")
             if not line:
                 continue
@@ -152,18 +152,64 @@ def extract_job_requirements(sections: list[object]) -> dict[str, list[str]]:
             elif (separator and not rest.strip()) or re.fullmatch(r"about us|benefits|compensation|what we offer|about the role", name):
                 group = ""
                 continue
-            preferred = bool(re.search(r"\b(?:preferred|nice to have|a plus|optional)\b", line, re.I))
+            preferred = bool(re.search(r"\b(?:preferred|preferably|ideally|nice to have|a plus|optional)\b", line, re.I))
             required = bool(re.search(r"\b(?:required|must have|must hold|must be|minimum)\b", line, re.I))
             category = "preferred" if preferred else "required" if required else group
+            if signals is not None:
+                collect_score_signals(signals, category, line)
             if category:
                 add(category, line)
-            if REQUIRED_EXPERIENCE.search(line) or FRESHER_SEARCH.search(line):
+            if REQUIRED_EXPERIENCE.search(line) or FRESHER_SEARCH.search(line) or (category == "required" and EXPERIENCE_YEARS.search(line)):
                 add("experience", line)
             if JD_QUALIFICATION.search(line):
                 add("qualifications", line)
             if JD_CONSTRAINT.search(line):
                 add("application_constraints", line)
     return evidence
+
+
+SKILL_PATTERN = re.compile(r"(?<![\w+#])(?:" + "|".join(re.escape(s) for s in sorted(SKILLS, key=len, reverse=True)) + r")(?![\w+#])", re.I)
+SKILL_NAMES = {s.casefold(): s for s in SKILLS}
+CREDENTIAL_PATTERN = re.compile(r"\b(?:PMP|CPA|ACCA|CFA|CISSP|CCNA|CMA|ITIL|SHRM-CP)\b", re.I)
+
+
+def collect_score_signals(signals: dict, group: str, line: str) -> None:
+    """Extract before display excerpts are shortened. Preserve unsupported alternatives for review."""
+    ambiguous = re.search(r"\b(?:or|equivalent|one of|either|not required|not necessary|no degree|without)\b", line, re.I)
+    if not ambiguous and group in {"required", "preferred"}:
+        skills = signals[group + "Skills"]
+        for match in SKILL_PATTERN.finditer(line):
+            skill = SKILL_NAMES[match[0].casefold()]
+            if skill not in skills:
+                skills.append(skill)
+        if group == "required" and not re.search(r"\b(?:pursuing|working toward|eligible for)\b", line, re.I):
+            for match in CREDENTIAL_PATTERN.finditer(line):
+                credential = match[0].upper()
+                if credential not in signals["credentials"]:
+                    signals["credentials"].append(credential)
+            for match in re.finditer(r"\b(bachelor|master|doctorate|ph\.?d)\b(?:['’]s)?(?:\s+degree)?(?:\s+in\s+([\w &-]+?)(?=[.,;:]|$))?", line, re.I):
+                degree = {"level": match[1].lower().replace(".", ""), "field": (match[2] or "").strip()}
+                if degree not in signals["degrees"]:
+                    signals["degrees"].append(degree)
+            language = re.search(r"\b(?:fluent|proficient|fluency|proficiency)\s+(?:in\s+)?(English|French|German|Spanish|Hindi|Italian|Dutch|Japanese|Mandarin|Arabic)\b", line, re.I)
+            if language and language[1].title() not in signals["languages"]:
+                signals["languages"].append(language[1].title())
+    if group in {"preferred", "responsibilities"} or ambiguous:
+        return
+    minimum = required_experience(line)
+    years = EXPERIENCE_YEARS.search(line)
+    if minimum is None and group == "required" and years and int(years[1]) <= 40:
+        if re.match(r"\s+(?:in|as|working|developing|building|managing|using)\b", line[years.end():], re.I):
+            minimum = int(years[1])
+    months = re.search(r"\b(\d{1,3}) months of experience required\b", line, re.I)
+    if months:
+        minimum = int(months[1]) / 12
+    if minimum is None and re.search(r"\bno (?:prior |previous |work )*experience (?:is )?(?:required|needed|necessary)\b", line, re.I):
+        minimum = 0
+    if minimum is not None and minimum > signals.get("minYears", -1):
+        signals["minYears"] = minimum
+        signals["experienceSkills"] = list(dict.fromkeys(SKILL_NAMES[m[0].casefold()] for m in SKILL_PATTERN.finditer(line)))
+        signals["experienceSource"] = textwrap.shorten(line, width=280, placeholder="…")
 
 
 def safe_https_url(value: object) -> str:
@@ -332,7 +378,8 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         return None
     mode = provider_mode or job_mode(remote, f"{title} {location}")
     posted, published = posted_label(published_value)
-    requirements = extract_job_requirements(sections)
+    signals = {"requiredSkills": [], "preferredSkills": [], "credentials": [], "degrees": [], "languages": []}
+    requirements = extract_job_requirements(sections, signals)
     return {
         "id": f"{provider}-{slug}-{record_id}", "title": title, "company": company,
         "location": location or "Location not listed", "mode": mode,
@@ -340,6 +387,7 @@ def normalize_public_job(source: dict[str, object], record: dict[str, object]) -
         "source": company, "sourceUrl": careers_url, "route": "Company career page", "url": url,
         "posted": posted, "published": published, "years": experience_label(description), "match": 65,
         "skills": known_skills(f"{title} {description}"),
+        "jdSignals": signals,
         **({"jdRequirements": requirements} if requirements else {}),
         "description": description[:1200] or "See the employer’s posting for details.",
         "highlights": [], "reason": "Review the requirements and work location on the company career page.",

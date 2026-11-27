@@ -84,7 +84,7 @@ def main():
                     state.profile.workModes = ['Remote'];
                     return ['Not listed','Flexible','Remote','Onsite'].map(mode => matchScore({...job,mode})-base);
                 } finally {state.profile.workModes = prior;}
-            }""", job) == [0,0,0,-6]
+            }""", job) == [0,0,0,0]  # Work mode filters discovery; CV evidence determines the displayed match.
             action = lambda name: page.locator(f'[data-action="{name}"]').first.click()
             nav = lambda name: page.locator(f'button.nav-link[data-nav="{name}"]').click()
 
@@ -203,7 +203,9 @@ def main():
             page.go_forward()
             expect(page.locator(".job-detail-hero")).to_be_visible()
             expect(page.locator(".score-card")).to_have_count(2)
-            expect(page.locator(".fit-recommendation")).to_be_visible()
+            page.get_by_text("How this score was calculated").click()
+            expect(page.locator(".fit-recommendation")).to_contain_text("applicable points")
+            expect(page.locator(".match-card")).to_contain_text("Role title")
             page.set_viewport_size({"width": 1280, "height": 720})
             with page.expect_popup() as opened:
                 action("track-listing")

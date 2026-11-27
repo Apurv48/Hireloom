@@ -7,6 +7,7 @@ on:
       - "data/company_boards.json"
       - "scripts/refresh_job_index.py"
       - "scripts/crawl_careers.py"
+      - "server.py"
       - ".github/workflows/refresh-jobs.yml"
   schedule:
     - cron: "17 1 * * *"

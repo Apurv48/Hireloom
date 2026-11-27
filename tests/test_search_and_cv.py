@@ -28,6 +28,30 @@ class CareerSearchTests(unittest.TestCase):
         self.assertIn("Python.", evidence["preferred"])
         self.assertIn("Build dashboards.", evidence["responsibilities"])
         self.assertIn("Work authorization is required.", evidence["application_constraints"])
+        signals = job["jdSignals"]
+        self.assertEqual(signals["requiredSkills"], ["SQL"])
+        self.assertEqual(signals["preferredSkills"], ["Python"])
+        self.assertEqual(signals["minYears"], 2)
+        self.assertEqual(signals["experienceSkills"], ["SQL"])
+        self.assertEqual(signals["degrees"], [{"level": "bachelor", "field": "Statistics"}])
+
+    def test_ats_criteria_beyond_excerpt_limit_and_optional_experience(self):
+        from html import escape
+        requirements = ["Pass check " + str(i) for i in range(10)]
+        requirements += ["Excel required; Python preferred.", "PMP required.", "Must be fluent in Hindi.",
+                         "Use AWS or Azure.", "Nice to have: 5 years of experience with SQL."]
+        for provider, record in [
+            ("greenhouse", {"absolute_url": "https://example.org/job", "content": escape(
+                "<h2>Required qualifications</h2>" + "".join("<li>"+s+"</li>" for s in requirements))}),
+            ("ashby", {"jobUrl": "https://example.org/job", "descriptionPlain": "Required skills\n"+"\n".join(requirements)}),
+        ]:
+            job = server.normalize_public_job({"company": "Example", "slug": "example", "provider": provider},
+                                             {"id": "1", "title": "Analyst", **record})
+            self.assertEqual(job["jdSignals"]["requiredSkills"], ["Excel"])
+            self.assertIn("Python", job["jdSignals"]["preferredSkills"])
+            self.assertEqual(job["jdSignals"]["credentials"], ["PMP"])
+            self.assertEqual(job["jdSignals"]["languages"], ["Hindi"])
+            self.assertNotIn("minYears", job["jdSignals"])
     def setUp(self):
         server._search_live_jobs_cached.cache_clear()
 

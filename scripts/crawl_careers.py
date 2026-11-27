@@ -109,8 +109,22 @@ def normalize(source, posting, url):
         if isinstance(area, dict) and isinstance(area.get("name"), str):
             places.append(area["name"])
     remote = "TELECOMMUTE" in many(posting.get("jobLocationType"))
-    description = " ".join(posting[key] for key in ("description", "qualifications", "skills")
-                           if isinstance(posting.get(key), str))
+    sections = []
+    for key, heading in (("description", ""), ("qualifications", "Required qualifications"),
+                         ("skills", "Skills"), ("experienceRequirements", "Experience requirements"),
+                         ("educationRequirements", "Required qualifications"), ("responsibilities", "Responsibilities")):
+        values = []
+        for value in many(posting.get(key)):
+            if isinstance(value, dict):
+                months = value.get("monthsOfExperience")
+                if key == "experienceRequirements" and type(months) is int and months >= 0:
+                    values.append(f"{months} months of experience required.")
+                value = value.get("credentialCategory") or value.get("name")
+            if isinstance(value, str) and value.strip():
+                values.append(value)
+        if values:
+            sections.append("\n".join([heading, *values]))
+    description = "\n".join(sections)
     identifier = posting.get("identifier")
     identifier = identifier.get("value") if isinstance(identifier, dict) else identifier
     identity = str(identifier) if isinstance(identifier, (str, int)) and identifier else url

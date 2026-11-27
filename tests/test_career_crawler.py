@@ -16,6 +16,8 @@ class CareerCrawlerTest(unittest.TestCase):
                   "provider": "career-html", "job_path": r"/jobs/\d+"}
         posting = {"@type": ["JobPosting"], "title": "Engineer", "identifier": {"value": "1"},
                    "description": "a " * 800 + "<p>Python</p>", "jobLocationType": "TELECOMMUTE",
+                   "experienceRequirements": {"@type":"OccupationalExperienceRequirements","monthsOfExperience":18},
+                   "educationRequirements":{"credentialCategory":"Bachelor degree in Engineering"},
                    "applicantLocationRequirements": {"name": "India"}}
         pages = {
             "https://careers.example.com/robots.txt": "User-agent: *\nDisallow: /jobs/2\n",
@@ -41,6 +43,8 @@ class CareerCrawlerTest(unittest.TestCase):
         self.assertEqual(jobs[0]["mode"], "Remote")
         self.assertEqual(jobs[0]["location"], "India")
         self.assertIn("Python", jobs[0]["skills"])
+        self.assertEqual(jobs[0]["jdSignals"]["minYears"], 1.5)
+        self.assertEqual(jobs[0]["jdSignals"]["degrees"][0]["field"], "Engineering")
         self.assertEqual(opener.open.call_count, 3)
 
     def test_release_refresh_skips_bundled_shards(self):
